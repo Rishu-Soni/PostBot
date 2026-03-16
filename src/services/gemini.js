@@ -26,7 +26,7 @@ function _client() {
   return _genAI;
 }
 
-const MODEL_ID = 'gemini-1.5-flash';
+const MODEL_ID = 'gemini-2.5-flash';
 
 // Generous timeout: large voice files (10 MB) take time to base64-encode and
 // upload over the network + inference time. 90 s is a safe p99 ceiling.
@@ -55,7 +55,8 @@ async function generatePosts(audioBuffer, preferences, refinementHint = null) {
 
     `WRITING STYLES: Each post must use a different one of these styles: ${styles.join(', ')}.\n` +
     `LAYOUT: Use this layout for each post: ${layout}.\n` +
-    `TONE: Write with a ${tone} tone throughout.\n\n` +
+    `TONE: Write with a ${tone} tone throughout.\n` +
+    `LANGUAGE: The output MUST be entirely in English. Translate the voice note into English if it is in another language.\n\n` +
 
     `POST QUALITY RULES:\n` +
     `• Each post should be 150–300 words.\n` +
