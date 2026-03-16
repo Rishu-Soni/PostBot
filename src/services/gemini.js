@@ -201,7 +201,7 @@ function _parsePostsJson(rawText) {
   // Find the outermost [ ... ] if not already a bare array
   if (!jsonString.startsWith('[')) {
     const arrayStart = jsonString.indexOf('[');
-    const arrayEnd   = jsonString.lastIndexOf(']');
+    const arrayEnd = jsonString.lastIndexOf(']');
     if (arrayStart !== -1 && arrayEnd > arrayStart) {
       jsonString = jsonString.slice(arrayStart, arrayEnd + 1);
     }
