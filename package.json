@@ -2,10 +2,10 @@
   "name": "postbot-backend",
   "version": "1.0.0",
   "description": "Telegram bot that converts voice brain-dumps into LinkedIn posts via Gemini AI.",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "engines": {
     "node": ">=18.0.0"
