@@ -102,7 +102,8 @@ async function safeEditMessageText(ctx, text, extra) {
  */
 async function handleStart(ctx) {
   const telegramId = String(ctx.from.id);
-  const firstName  = ctx.from.first_name || 'there';
+  // Sanitize first name to prevent Markdown parsing errors (e.g., names with unclosed underscores like "Rizz_User")
+  const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
     // Upsert: rawResult lets us distinguish insert vs. find via lastErrorObject.
@@ -264,10 +265,12 @@ async function handleTonePick(ctx) {
 
     updateSession(telegramId, { step: STEPS.WAITING_VOICE, temp: {} });
 
+    const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
+
     await safeEditMessageText(
       ctx,
       `✅ *Tone:* ${value}\n\n` +
-      `🎉 *All set, ${ctx.from.first_name || 'there'}!*\n\n` +
+      `🎉 *All set, ${firstName}!*\n\n` +
       `Your preferences:\n` +
       `• Style: ${styles.join(', ')}\n` +
       `• Layout: ${chosenLayout}\n` +
