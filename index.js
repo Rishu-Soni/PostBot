@@ -74,26 +74,30 @@ async function connectToDatabase() {
 // ─────────────────────────────────────────────────────────────────────────────
 app.use(express.json());
 
-// ── 6. Webhook route with early acknowledgment ────────────────────────────────
+// ── 6. Webhook route ────────────────────────────────────────────────────────
 app.post(WEBHOOK_PATH, async (req, res) => {
-  // Acknowledge immediately to prevent Vercel 10s timeout from causing Telegram retries
-  // Vercel might suspend the function soon after sending this response,
-  // but this is the requested workaround to prevent infinite retries.
-  res.status(200).send('OK');
-
   // Verify secret token
   if (WEBHOOK_SECRET && req.headers['x-telegram-bot-api-secret-token'] !== WEBHOOK_SECRET) {
     console.warn('[Webhook] Unauthorized request: secret token mismatch');
-    return;
+    return res.status(403).send('Forbidden');
   }
 
   try {
     // Ensure DB is connected
     await connectToDatabase();
-    // Handle the update
+    
+    // IMPORTANT FOR VERCEL SERVERLESS:
+    // We MUST await the update fully BEFORE sending the HTTP response.
+    // Sending `res.send()` early causes Vercel to instantly freeze the function,
+    // which was why your bot wasn't responding at all.
     await bot.handleUpdate(req.body);
+    
+    // Acknowledge Telegram only after we finish processing
+    res.status(200).send('OK');
   } catch (err) {
     console.error('[Webhook] Error handling update:', err);
+    // Don't send 500 to Telegram unless absolutely necessary, or it will infinitely retry.
+    res.status(200).send('OK'); 
   }
 });
 
