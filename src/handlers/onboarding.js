@@ -118,46 +118,18 @@ async function handleStart(ctx) {
     // Reset session (clean slate) whenever /start is sent.
     updateSession(telegramId, { step: STEPS.IDLE, posts: [], temp: {} });
 
-    if (isNewUser) {
-      updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE });
-      await ctx.reply(
-        `👋 Welcome to *Postbot*, ${firstName}!\n\n` +
-        `I turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\n` +
-        `Let's set up your content style. You can always change these later with /settings.\n\n` +
-        `*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-        { parse_mode: 'Markdown', ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style') }
-      );
-    } else {
-      // Returning user — check if onboarding was completed.
-      const user = await User.findOne({ telegramId });
+    // Always show the setup options when /start is triggered
+    updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE });
+    
+    const welcomeMsg = isNewUser
+      ? `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\nLet's set up your content style.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`
+      : `👋 Welcome back, ${firstName}!\n\nLet's update your content preferences.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`;
 
-      if (!user?.onboardingComplete) {
-        // Incomplete onboarding (e.g. disconnected mid-flow).
-        updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE });
-        await ctx.reply(
-          `👋 Welcome back, ${firstName}! Looks like we didn't finish setting up last time.\n\n` +
-          `*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-          { parse_mode: 'Markdown', ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style') }
-        );
-        return;
-      }
+    await ctx.reply(welcomeMsg, {
+      parse_mode: 'Markdown',
+      ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style')
+    });
 
-      updateSession(telegramId, { step: STEPS.WAITING_VOICE });
-      await ctx.reply(
-        `Welcome back, *${firstName}*! 🎉\n\n` +
-        `Your saved preferences:\n` +
-        `• Style: ${(user.preferredStyles || []).join(', ')}\n` +
-        `• Layout: ${user.preferredLayout}\n` +
-        `• Tone: ${user.preferredTone}\n\n` +
-        `🎙 Send me a *voice note* whenever you're ready!`,
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([
-            [Markup.button.callback('⚙️ Change Preferences', 'change_prefs')]
-          ])
-        }
-      );
-    }
   } catch (err) {
     console.error('[onboarding] handleStart error:', err);
     await ctx.reply('😔 Something went wrong. Please try /start again.');
