@@ -95,7 +95,10 @@ async function generatePosts(audioBuffer, preferences, refinementHint = null) {
 
   const apiCallPromise = _client().models.generateContent({
     model: MODEL_ID,
-    config: { systemInstruction },
+    config: { 
+      systemInstruction,
+      responseMimeType: 'application/json',
+    },
     contents: [
       {
         role: 'user',
@@ -165,7 +168,10 @@ async function revisePosts(originalPosts, instructions, targetIndex) {
 
   const apiCallPromise = _client().models.generateContent({
     model: MODEL_ID,
-    config: { systemInstruction },
+    config: { 
+      systemInstruction,
+      responseMimeType: 'application/json',
+    },
     contents: [
       {
         role: 'user',
@@ -206,6 +212,11 @@ function _parsePostsJson(rawText) {
       jsonString = jsonString.slice(arrayStart, arrayEnd + 1);
     }
   }
+
+  // Fallback: Fix unescaped newlines inside string literals which break JSON.parse
+  jsonString = jsonString.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (match) => {
+    return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+  });
 
   let posts;
   try {
