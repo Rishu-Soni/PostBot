@@ -45,7 +45,7 @@ const WEBHOOK_PATH   = '/webhook/telegram';
 const WEBHOOK_URL    = `${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`;
 
 // ── 4. Handler imports ────────────────────────────────────────────────────────
-const { handleStart, handleStylePick, handleLayoutPick, handleTonePick } =
+const { handleStart, handleChangePrefs, handleStylePick, handleLayoutPick, handleTonePick } =
   require('./src/handlers/onboarding');
 const { handleVoice }                                    = require('./src/handlers/voice');
 const { handlePostAction, handleReviseAction, handleRevisePick } =
@@ -260,6 +260,7 @@ bot.command('help', (ctx) =>
 );
 
 // ── 13. Onboarding inline button callbacks ─────────────────────────────────────
+bot.action('change_prefs',     async (ctx, next) => { await connectToDatabase(); return handleChangePrefs(ctx, next); });
 bot.action(/^ob_style:(.+)$/, async (ctx, next) => { await connectToDatabase(); return handleStylePick(ctx, next); });
 bot.action(/^ob_layout:(.+)$/, async (ctx, next) => { await connectToDatabase(); return handleLayoutPick(ctx, next); });
 bot.action(/^ob_tone:(.+)$/,   async (ctx, next) => { await connectToDatabase(); return handleTonePick(ctx, next); });

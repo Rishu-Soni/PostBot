@@ -150,13 +150,37 @@ async function handleStart(ctx) {
         `• Layout: ${user.preferredLayout}\n` +
         `• Tone: ${user.preferredTone}\n\n` +
         `🎙 Send me a *voice note* whenever you're ready!`,
-        { parse_mode: 'Markdown' }
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('⚙️ Change Preferences', 'change_prefs')]
+          ])
+        }
       );
     }
   } catch (err) {
     console.error('[onboarding] handleStart error:', err);
     await ctx.reply('😔 Something went wrong. Please try /start again.');
   }
+}
+
+/**
+ * Handles "change_prefs" callback from the returning user string.
+ *
+ * @param {import('telegraf').Context} ctx
+ */
+async function handleChangePrefs(ctx) {
+  await ctx.answerCbQuery();
+  const telegramId = String(ctx.from.id);
+  
+  updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, temp: {} });
+  
+  await safeEditMessageText(
+    ctx,
+    `⚙️ *Let's update your preferences!*\n\n` +
+    `*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
+    { parse_mode: 'Markdown', ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style') }
+  );
 }
 
 // ── Onboarding step 1: Writing Style ─────────────────────────────────────────
@@ -285,4 +309,4 @@ async function handleTonePick(ctx) {
   }
 }
 
-module.exports = { handleStart, handleStylePick, handleLayoutPick, handleTonePick };
+module.exports = { handleStart, handleChangePrefs, handleStylePick, handleLayoutPick, handleTonePick };

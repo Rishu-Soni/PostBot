@@ -156,29 +156,22 @@ async function _generateAndSend(ctx, fileId, telegramId, refinementHint) {
       temp:  {},
     });
 
-    // ── Build inline keyboard ─────────────────────────────────────────────
-    const keyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback('✅ Post Option 1', 'post_0'),
-        Markup.button.callback('✅ Post Option 2', 'post_1'),
-        Markup.button.callback('✅ Post Option 3', 'post_2'),
-      ],
-      [
-        Markup.button.callback('🔄 Revise a Post', 'revise'),
-      ],
-    ]);
-
-    // ── Delete thinking message & send results ────────────────────────────
+    // ── Send individual posts with attached buttons ───────────────────────────
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
 
     await ctx.reply('✨ *Here are your 3 LinkedIn posts:*', { parse_mode: 'Markdown' });
 
     for (let i = 0; i < posts.length; i++) {
-      const isLast   = i === posts.length - 1;
       const postText = `────── Option ${i + 1} ──────\n\n${posts[i]}`;
+      
+      const perPostKeyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Post This Option', `post_${i}`)],
+        [Markup.button.callback('🔄 Modify This Option', `revise_pick_${i}`)]
+      ]);
+
       // IMPORTANT: no parse_mode on post bodies — AI content may contain
       // special Markdown characters that would break the parser.
-      await ctx.reply(postText, isLast ? keyboard : {});
+      await ctx.reply(postText, perPostKeyboard);
     }
   } catch (err) {
     console.error('[voice] Pipeline error:', err.message);
