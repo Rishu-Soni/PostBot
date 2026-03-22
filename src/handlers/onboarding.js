@@ -1,282 +1,153 @@
-// src/handlers/onboarding.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Multi-step onboarding handler for new Postbot users.
-//
-// FIX TRACKER
-//   FIX 6: editMessageText() calls now have try/catch around them.
-//           Telegram rejects edits with "message is not modified" (400) if the
-//           content hasn't changed (e.g. user re-taps the same button). Without
-//           this guard the error bubbles up, logs an ugly stack trace, and could
-//           leave the user without any feedback.
-//   FIX 7: handleTonePick now guards against a null/undefined chosenStyle or
-//           chosenLayout in session.temp. If the session expired between steps
-//           (30-min TTL), the handler would silently write undefined to MongoDB
-//           and produce a broken state. We now detect this and restart onboarding.
-// ─────────────────────────────────────────────────────────────────────────────
-
 'use strict';
 
 const { Markup } = require('telegraf');
 const User  = require('../models/User');
 const { STEPS, getSession, updateSession } = require('../state/sessionStore');
 
-// ── Static choice lists ───────────────────────────────────────────────────────
-
-const STYLE_OPTIONS = [
-  { label: '⚡ Punchy & Direct',  value: 'Punchy & Direct' },
-  { label: '📖 Storytelling',     value: 'Storytelling'    },
-  { label: '🔬 Analytical',       value: 'Analytical'      },
-  { label: '😄 Conversational',   value: 'Conversational'  },
+const STYLE_OPTIONS  = [
+  { label: '⚡ Punchy & Direct', value: 'Punchy & Direct' },
+  { label: '📖 Storytelling',    value: 'Storytelling'    },
+  { label: '🔬 Analytical',      value: 'Analytical'      },
+  { label: '😄 Conversational',  value: 'Conversational'  },
 ];
-
 const LAYOUT_OPTIONS = [
   { label: '📄 Single block',     value: 'Single block'     },
   { label: '🔢 Numbered list',    value: 'Numbered list'    },
   { label: '• Bullet points',     value: 'Bullet points'    },
   { label: '📝 Short paragraphs', value: 'Short paragraphs' },
 ];
-
-const TONE_OPTIONS = [
+const TONE_OPTIONS   = [
   { label: '💼 Professional', value: 'Professional' },
   { label: '😊 Casual',       value: 'Casual'       },
   { label: '🔥 Motivational', value: 'Motivational' },
   { label: '😂 Humorous',     value: 'Humorous'     },
 ];
-
-// Maps the primary style choice to a 3-element styles array.
 const STYLE_MAP = {
-  'Punchy & Direct': ['Punchy & Direct', 'Storytelling',  'Analytical'      ],
-  'Storytelling':    ['Storytelling',    'Punchy & Direct','Analytical'      ],
-  'Analytical':      ['Analytical',      'Storytelling',   'Punchy & Direct' ],
-  'Conversational':  ['Conversational',  'Storytelling',   'Punchy & Direct' ],
+  'Punchy & Direct': ['Punchy & Direct', 'Storytelling',  'Analytical'     ],
+  'Storytelling':    ['Storytelling',    'Punchy & Direct','Analytical'     ],
+  'Analytical':      ['Analytical',      'Storytelling',   'Punchy & Direct'],
+  'Conversational':  ['Conversational',  'Storytelling',   'Punchy & Direct'],
 };
 
-// ── Keyboard builder ──────────────────────────────────────────────────────────
-
-/** 2-column inline keyboard for a list of option objects. */
-function buildChoiceKeyboard(options, prefix) {
+function buildKeyboard(options, prefix) {
   const rows = [];
   for (let i = 0; i < options.length; i += 2) {
-    rows.push(
-      options.slice(i, i + 2).map((o) =>
-        Markup.button.callback(o.label, `${prefix}:${o.value}`)
-      )
-    );
+    rows.push(options.slice(i, i + 2).map(o => Markup.button.callback(o.label, `${prefix}:${o.value}`)));
   }
   return Markup.inlineKeyboard(rows);
 }
 
-// ── Shared helper: edit message with error handling ───────────────────────────
-
-/**
- * Attempt to edit a message. Silently ignores "message is not modified" errors
- * (HTTP 400 with "message is not modified" text) so double-taps don't crash.
- *
- * FIX 6: Without this, re-tapping an already-processed button throws an
- * unhandled error because Telegram's "message is not modified" error has no
- * special error code — it's a generic BadRequest with that string in the message.
- *
- * @param {import('telegraf').Context} ctx
- * @param {string} text
- * @param {object} [extra]
- */
-async function safeEditMessageText(ctx, text, extra) {
+async function safeEdit(ctx, text, extra) {
   try {
     await ctx.editMessageText(text, extra);
   } catch (err) {
-    // Telegram error: 400 Bad Request: message is not modified
-    // This happens when the user taps the same button twice.
-    if (err.message && err.message.includes('message is not modified')) {
-      return; // silently ignore — idempotent operation
-    }
-    throw err; // re-throw genuinely unexpected errors
+    if (!err.message?.includes('message is not modified')) throw err;
   }
 }
 
-// ── Handler: /start command ───────────────────────────────────────────────────
-
-/**
- * Called from server.js bot.start(). Branches on new vs. returning user.
- *
- * @param {import('telegraf').Context} ctx
- */
 async function handleStart(ctx) {
   const telegramId = String(ctx.from.id);
-  // Sanitize first name to prevent Markdown parsing errors (e.g., names with unclosed underscores like "Rizz_User")
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
-    // Upsert: rawResult lets us distinguish insert vs. find via lastErrorObject.
-    const rawResult = await User.findOneAndUpdate(
+    // Upsert: create user if they don't exist yet
+    const raw = await User.findOneAndUpdate(
       { telegramId },
       { $setOnInsert: { telegramId, firstName } },
       { upsert: true, new: false, rawResult: true }
     );
+    const isNew = !!raw?.lastErrorObject?.upserted;
 
-    const isNewUser = !!rawResult?.lastErrorObject?.upserted;
+    // Fetch the latest user doc (will exist now due to upsert)
+    const user = await User.findOne({ telegramId });
 
-    // Reset session (clean slate) whenever /start is sent.
-    updateSession(telegramId, { step: STEPS.IDLE, posts: [], temp: {} });
+    // Returning user with completed onboarding → skip straight to posting
+    if (!isNew && user?.onboardingComplete) {
+      updateSession(telegramId, { step: STEPS.WAITING_VOICE, posts: [], temp: {} });
+      await ctx.reply(
+        `👋 Welcome back, *${firstName}!*\n\n` +
+        `🎙 Send me a *voice note* and I'll turn it into 3 polished LinkedIn posts.\n\n` +
+        `_To update your preferences, use /settings._`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
 
-    // Always show the setup options when /start is triggered
-    updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE });
-    
-    const welcomeMsg = isNewUser
-      ? `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\nLet's set up your content style.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`
-      : `👋 Welcome back, ${firstName}!\n\nLet's update your content preferences.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`;
-
-    await ctx.reply(welcomeMsg, {
-      parse_mode: 'Markdown',
-      ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style')
-    });
-
+    // New user or incomplete onboarding → start onboarding flow
+    updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, posts: [], temp: {} });
+    await ctx.reply(
+      isNew
+        ? `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`
+        : `👋 Welcome back, ${firstName}!\n\nLet's finish setting up your preferences.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
+      { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
+    );
   } catch (err) {
-    console.error('[onboarding] handleStart error:', err);
+    console.error('[onboarding] handleStart:', err);
     await ctx.reply('😔 Something went wrong. Please try /start again.');
   }
 }
 
-/**
- * Handles "change_prefs" callback from the returning user string.
- *
- * @param {import('telegraf').Context} ctx
- */
 async function handleChangePrefs(ctx) {
   await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
-  
-  updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, temp: {} });
-  
-  await safeEditMessageText(
-    ctx,
-    `⚙️ *Let's update your preferences!*\n\n` +
-    `*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-    { parse_mode: 'Markdown', ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style') }
+  updateSession(String(ctx.from.id), { step: STEPS.ONBOARDING_STYLE, temp: {} });
+  await safeEdit(ctx,
+    `⚙️ *Let's update your preferences!*\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
+    { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
   );
 }
 
-// ── Onboarding step 1: Writing Style ─────────────────────────────────────────
-
-/**
- * Handles "ob_style:<value>" callback. Advances to layout step.
- *
- * @param {import('telegraf').Context} ctx
- */
 async function handleStylePick(ctx) {
   await ctx.answerCbQuery();
-
   const telegramId = String(ctx.from.id);
-  const value      = ctx.match[1];
-
-  updateSession(telegramId, {
-    step: STEPS.ONBOARDING_LAYOUT,
-    temp: { ...getSession(telegramId).temp, chosenStyle: value },
-  });
-
-  // FIX 6: Use safeEditMessageText to silently handle double-taps.
-  await safeEditMessageText(
-    ctx,
-    `✅ *Writing style:* ${value}\n\n` +
-    `*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
-    { parse_mode: 'Markdown', ...buildChoiceKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
+  updateSession(telegramId, { step: STEPS.ONBOARDING_LAYOUT, temp: { ...getSession(telegramId).temp, chosenStyle: ctx.match[1] } });
+  await safeEdit(ctx,
+    `✅ *Writing style:* ${ctx.match[1]}\n\n*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
+    { parse_mode: 'Markdown', ...buildKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
   );
 }
 
-// ── Onboarding step 2: Layout ─────────────────────────────────────────────────
-
-/**
- * Handles "ob_layout:<value>" callback. Advances to tone step.
- *
- * @param {import('telegraf').Context} ctx
- */
 async function handleLayoutPick(ctx) {
   await ctx.answerCbQuery();
-
   const telegramId = String(ctx.from.id);
-  const value      = ctx.match[1];
-
-  updateSession(telegramId, {
-    step: STEPS.ONBOARDING_TONE,
-    temp: { ...getSession(telegramId).temp, chosenLayout: value },
-  });
-
-  await safeEditMessageText(
-    ctx,
-    `✅ *Layout:* ${value}\n\n` +
-    `*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
-    { parse_mode: 'Markdown', ...buildChoiceKeyboard(TONE_OPTIONS, 'ob_tone') }
+  updateSession(telegramId, { step: STEPS.ONBOARDING_TONE, temp: { ...getSession(telegramId).temp, chosenLayout: ctx.match[1] } });
+  await safeEdit(ctx,
+    `✅ *Layout:* ${ctx.match[1]}\n\n*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
+    { parse_mode: 'Markdown', ...buildKeyboard(TONE_OPTIONS, 'ob_tone') }
   );
 }
 
-// ── Onboarding step 3: Tone (final step) ──────────────────────────────────────
-
-/**
- * Handles "ob_tone:<value>" callback. Persists all preferences to MongoDB.
- *
- * FIX 7: Guards against missing chosenStyle / chosenLayout in session.temp.
- *        If the session expired between step 1 and step 3 (30+ min gap), these
- *        would be undefined, writing `undefined` strings to MongoDB silently.
- *        We now detect this and restart onboarding instead.
- *
- * @param {import('telegraf').Context} ctx
- */
 async function handleTonePick(ctx) {
   await ctx.answerCbQuery();
-
   const telegramId = String(ctx.from.id);
-  const value      = ctx.match[1];
-  const session    = getSession(telegramId);
-  const { chosenStyle, chosenLayout } = session.temp ?? {};
+  const { chosenStyle, chosenLayout } = getSession(telegramId).temp ?? {};
 
-  // FIX 7: Detect session-expired mid-onboarding.
   if (!chosenStyle || !chosenLayout) {
-    console.warn(
-      `[onboarding] handleTonePick: missing temp data for ${telegramId}. ` +
-      `chosenStyle=${chosenStyle}, chosenLayout=${chosenLayout}. Restarting onboarding.`
-    );
     updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, temp: {} });
-    // Answer the stale callback first, then restart from step 1.
     await ctx.reply(
-      '⚠️ Your setup session expired. Let\'s start over!\n\n' +
-      '*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?',
-      { parse_mode: 'Markdown', ...buildChoiceKeyboard(STYLE_OPTIONS, 'ob_style') }
+      '⚠️ Your setup session expired. Let\'s start over!\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?',
+      { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
     );
     return;
   }
 
-  const styles = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
+  const styles    = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
+  const tone      = ctx.match[1];
+  const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
     await User.findOneAndUpdate(
       { telegramId },
-      {
-        $set: {
-          preferredStyles:    styles,
-          preferredLayout:    chosenLayout,
-          preferredTone:      value,
-          onboardingComplete: true,
-        },
-      }
+      { $set: { preferredStyles: styles, preferredLayout: chosenLayout, preferredTone: tone, onboardingComplete: true } }
     );
-
     updateSession(telegramId, { step: STEPS.WAITING_VOICE, temp: {} });
-
-    const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
-
-    await safeEditMessageText(
-      ctx,
-      `✅ *Tone:* ${value}\n\n` +
-      `🎉 *All set, ${firstName}!*\n\n` +
-      `Your preferences:\n` +
-      `• Style: ${styles.join(', ')}\n` +
-      `• Layout: ${chosenLayout}\n` +
-      `• Tone: ${value}\n\n` +
-      `🎙 *Now send me a voice note* with your raw thoughts or ideas.\n\n` +
-      `_Use /settings any time to review your preferences._`,
+    await safeEdit(ctx,
+      `✅ *Tone:* ${tone}\n\n🎉 *All set, ${firstName}!*\n\n` +
+      `Your preferences:\n• Style: ${styles.join(', ')}\n• Layout: ${chosenLayout}\n• Tone: ${tone}\n\n` +
+      `🎙 *Now send me a voice note* with your raw thoughts or ideas.\n\n_Use /settings any time to review or change your preferences._`,
       { parse_mode: 'Markdown' }
     );
   } catch (err) {
-    console.error('[onboarding] handleTonePick error:', err);
+    console.error('[onboarding] handleTonePick:', err);
     await ctx.reply('😔 Could not save your preferences. Please try /start again.');
   }
 }
