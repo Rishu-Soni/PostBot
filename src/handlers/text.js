@@ -3,21 +3,26 @@
 const { Markup }  = require('telegraf');
 const { revisePosts } = require('../services/gemini');
 
+const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
+
+// Safely extract the original post text from a force-reply message.
+// Uses indexOf instead of split so post bodies containing '\n---\n' never corrupt extraction.
+function extractFromReply(replyText) {
+  const idx = replyText.indexOf(REVISION_MARKER);
+  if (idx === -1) return null;
+  return replyText.slice(idx + REVISION_MARKER.length).trim();
+}
+
 async function handleText(ctx) {
   const text = ctx.message?.text?.trim() ?? '';
   if (!text || text.startsWith('/')) return;
 
-  const replyText = ctx.message.reply_to_message?.text;
-  
-  if (replyText && replyText.includes('Reply to this message with your instructions to modify this post:\n\n---')) {
-    const parts = replyText.split('\n---\n');
-    if (parts.length > 1) {
-      const postText = parts.slice(1).join('\n---\n').trim();
-      return handleRevise(ctx, postText, text);
-    }
-  }
+  const postText = ctx.message.reply_to_message?.text
+    ? extractFromReply(ctx.message.reply_to_message.text)
+    : null;
 
-  // Not a reply to a revision prompt
+  if (postText) return handleRevise(ctx, postText, text);
+
   await ctx.reply(
     '🎙 I process voice notes! Send me a *voice note* with your thoughts and I\'ll turn them into 3 LinkedIn posts.',
     { parse_mode: 'Markdown' }
@@ -25,14 +30,11 @@ async function handleText(ctx) {
 }
 
 async function handleRevise(ctx, postText, instructions) {
-  // Sanitise instructions
-  const sanitised = instructions.slice(0, 500).replace(/[`\\"]/g, "'");
-
+  const sanitised  = instructions.slice(0, 500).replace(/[`\\"]/g, "'");
   const thinkingMsg = await ctx.reply('✍️ Revising with Gemini… give me a moment.');
 
   try {
     const newStrings = await revisePosts(postText, sanitised);
-
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
     await ctx.reply('✨ *Here are your 3 revised LinkedIn posts:*', { parse_mode: 'Markdown' });
 

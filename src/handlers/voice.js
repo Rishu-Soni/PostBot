@@ -5,28 +5,30 @@ const { Markup } = require('telegraf');
 const User   = require('../models/User');
 const { generatePosts } = require('../services/gemini');
 
+const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
+
 async function handleVoice(ctx) {
-  if (!ctx.message?.voice) return;
+  // Guard: ctx.from can be null for anonymous channel posts
+  if (!ctx.message?.voice || !ctx.from) return;
 
   const telegramId = String(ctx.from.id);
   const voice      = ctx.message.voice;
 
+  // Check if this is a reply to a revision force-reply message
   let refinementHint = null;
-  const replyText = ctx.message.reply_to_message?.text;
-  
-  if (replyText && replyText.includes('Reply to this message with your instructions to modify this post:\n\n---')) {
-    const parts = replyText.split('\n---\n');
-    if (parts.length > 1) {
-      const postText = parts.slice(1).join('\n---\n').trim();
-      refinementHint = `The user wants to revise this specific post based on their voice note:\n"${postText}"`;
+  const replyText = ctx.message.reply_to_message?.text ?? '';
+  if (replyText) {
+    const idx = replyText.indexOf(REVISION_MARKER);
+    if (idx !== -1) {
+      const postText = replyText.slice(idx + REVISION_MARKER.length).trim();
+      refinementHint = `The user wants to revise this specific post based on their voice instructions:\n"${postText}"`;
     }
   }
 
-  // Double check user is fully onboarded since there are no sessions to track it
+  // Verify user is onboarded before processing (no sessions — must check DB)
   const user = await User.findOne({ telegramId });
-  if (!user || user.onboardingComplete !== true) {
-    await ctx.reply('⚠️ Please complete the setup first, then send your voice note. Send /start to begin.');
-    return;
+  if (!user || !user.onboardingComplete) {
+    return ctx.reply('⚠️ Please set up your preferences first. Send /start to begin.');
   }
 
   if (voice.duration > 120) {
@@ -42,7 +44,7 @@ async function handleVoice(ctx) {
 async function _process(ctx, fileId, user, refinementHint) {
   const thinkingMsg = await ctx.reply(
     refinementHint
-      ? '🔄 Refining your posts with Gemini… this may take 15–30 seconds.'
+      ? '🔄 Refining your post with Gemini… this may take 15–30 seconds.'
       : '🎧 Got your voice note! Processing with Gemini… this may take 15–30 seconds.'
   );
 
@@ -52,9 +54,9 @@ async function _process(ctx, fileId, user, refinementHint) {
     const audioBuffer = Buffer.from(audioResp.data);
 
     const postStrings = await generatePosts(audioBuffer, {
-      styles: user.preferredStyles ?? ['Punchy & Direct', 'Storytelling', 'Analytical'],
-      layout: user.preferredLayout ?? 'Single block',
-      tone:   user.preferredTone   ?? 'Professional',
+      styles: user.preferredStyles?.length ? user.preferredStyles : ['Punchy & Direct', 'Storytelling', 'Analytical'],
+      layout: user.preferredLayout  || 'Single block',
+      tone:   user.preferredTone    || 'Professional',
     }, refinementHint);
 
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
@@ -74,8 +76,8 @@ async function _process(ctx, fileId, user, refinementHint) {
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
     await ctx.reply(
       '😔 Something went wrong while processing your voice note.\n\n' +
-      `${err.message.startsWith('[Gemini]') ? err.message : 'Please try again in a moment.'} ` +
-      `If the problem persists, make sure your recording is under 2 minutes.`
+      (err.message.startsWith('[Gemini]') ? err.message : 'Please try again in a moment.') +
+      ' If the problem persists, make sure your recording is under 2 minutes.'
     );
   }
 }

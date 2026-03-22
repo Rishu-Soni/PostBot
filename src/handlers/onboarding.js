@@ -3,7 +3,7 @@
 const { Markup } = require('telegraf');
 const User  = require('../models/User');
 
-const STYLE_OPTIONS  = [
+const STYLE_OPTIONS = [
   { label: '⚡ Punchy & Direct', value: 'Punchy & Direct' },
   { label: '📖 Storytelling',    value: 'Storytelling'    },
   { label: '🔬 Analytical',      value: 'Analytical'      },
@@ -15,7 +15,7 @@ const LAYOUT_OPTIONS = [
   { label: '• Bullet points',     value: 'Bullet points'    },
   { label: '📝 Short paragraphs', value: 'Short paragraphs' },
 ];
-const TONE_OPTIONS   = [
+const TONE_OPTIONS = [
   { label: '💼 Professional', value: 'Professional' },
   { label: '😊 Casual',       value: 'Casual'       },
   { label: '🔥 Motivational', value: 'Motivational' },
@@ -44,36 +44,56 @@ async function safeEdit(ctx, text, extra) {
   }
 }
 
+// Prompt the user to send a voice note. Called after style setup and by /generate.
+async function promptGenerate(ctx) {
+  await ctx.reply(
+    '🎙 *Ready!* Send me a voice note and I\'ll turn it into 3 polished LinkedIn posts.',
+    { parse_mode: 'Markdown' }
+  );
+}
+
+// Kick off the 3-step style setup. Used by /start (new users) and /setStyle.
+async function startStyleSetup(ctx) {
+  const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
+  await User.findOneAndUpdate(
+    { telegramId: String(ctx.from.id) },
+    { $set: { onboardingComplete: false } }
+  );
+  await ctx.reply(
+    `⚙️ *Let's set your post preferences, ${firstName}!*\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
+    { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
+  );
+}
+
 async function handleStart(ctx) {
+  if (!ctx.from) return;
   const telegramId = String(ctx.from.id);
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
-    const raw = await User.findOneAndUpdate(
+    // Upsert: create if new, return the latest doc
+    const user = await User.findOneAndUpdate(
       { telegramId },
       { $setOnInsert: { telegramId, firstName } },
-      { upsert: true, new: false, rawResult: true }
+      { upsert: true, new: true }
     );
-    const isNew = !!raw?.lastErrorObject?.upserted;
 
-    const user = await User.findOne({ telegramId });
-
-    if (!isNew && user?.onboardingComplete) {
+    if (user.onboardingComplete) {
+      // Returning user with complete prefs — skip setup, go straight to prompting
       await ctx.reply(
         `👋 Welcome back, *${firstName}!*\n\n` +
         `🎙 Send me a *voice note* and I'll turn it into 3 polished LinkedIn posts.\n\n` +
-        `_To update your preferences, use /settings._`,
+        `_Use /settings to review your preferences or /generate to start._`,
         { parse_mode: 'Markdown' }
       );
-      return;
+    } else {
+      // New user or incomplete setup
+      await ctx.reply(
+        `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice notes into 3 polished LinkedIn posts in seconds.\n\nLet's set up your preferences first.`,
+        { parse_mode: 'Markdown' }
+      );
+      await startStyleSetup(ctx);
     }
-
-    await ctx.reply(
-      isNew
-        ? `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`
-        : `👋 Welcome back, ${firstName}!\n\nLet's finish setting up your preferences.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-      { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
-    );
   } catch (err) {
     console.error('[onboarding] handleStart:', err);
     await ctx.reply('😔 Something went wrong. Please try /start again.');
@@ -82,48 +102,54 @@ async function handleStart(ctx) {
 
 async function handleChangePrefs(ctx) {
   await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
-  
-  await User.findOneAndUpdate({ telegramId }, { $set: { onboardingComplete: false } });
-  
-  await safeEdit(ctx,
-    `⚙️ *Let's update your preferences!*\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-    { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
-  );
+  try {
+    await startStyleSetup(ctx);
+  } catch (err) {
+    console.error('[onboarding] handleChangePrefs:', err);
+    await ctx.answerCbQuery('😔 Something went wrong. Please try again.', { show_alert: true });
+  }
 }
 
 async function handleStylePick(ctx) {
   await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
+  const telegramId  = String(ctx.from.id);
   const chosenStyle = ctx.match[1];
-  const styles = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
-  
-  await User.findOneAndUpdate({ telegramId }, { $set: { preferredStyles: styles } });
-  
-  await safeEdit(ctx,
-    `✅ *Writing style:* ${chosenStyle}\n\n*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
-    { parse_mode: 'Markdown', ...buildKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
-  );
+  const styles      = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
+
+  try {
+    await User.findOneAndUpdate({ telegramId }, { $set: { preferredStyles: styles } });
+    await safeEdit(ctx,
+      `✅ *Writing style:* ${chosenStyle}\n\n*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
+      { parse_mode: 'Markdown', ...buildKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
+    );
+  } catch (err) {
+    console.error('[onboarding] handleStylePick:', err);
+    await ctx.reply('😔 Could not save your style. Please try again.');
+  }
 }
 
 async function handleLayoutPick(ctx) {
   await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
+  const telegramId   = String(ctx.from.id);
   const chosenLayout = ctx.match[1];
-  
-  await User.findOneAndUpdate({ telegramId }, { $set: { preferredLayout: chosenLayout } });
-  
-  await safeEdit(ctx,
-    `✅ *Layout:* ${chosenLayout}\n\n*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
-    { parse_mode: 'Markdown', ...buildKeyboard(TONE_OPTIONS, 'ob_tone') }
-  );
+
+  try {
+    await User.findOneAndUpdate({ telegramId }, { $set: { preferredLayout: chosenLayout } });
+    await safeEdit(ctx,
+      `✅ *Layout:* ${chosenLayout}\n\n*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
+      { parse_mode: 'Markdown', ...buildKeyboard(TONE_OPTIONS, 'ob_tone') }
+    );
+  } catch (err) {
+    console.error('[onboarding] handleLayoutPick:', err);
+    await ctx.reply('😔 Could not save your layout. Please try again.');
+  }
 }
 
 async function handleTonePick(ctx) {
   await ctx.answerCbQuery();
   const telegramId = String(ctx.from.id);
-  const tone = ctx.match[1];
-  const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
+  const tone       = ctx.match[1];
+  const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
     const user = await User.findOneAndUpdate(
@@ -131,17 +157,24 @@ async function handleTonePick(ctx) {
       { $set: { preferredTone: tone, onboardingComplete: true } },
       { new: true }
     );
-    
+
+    // Guard: user should always exist here (created in /start upsert), but be safe
+    if (!user) {
+      return ctx.reply('⚠️ Your account was not found. Please send /start to re-register.');
+    }
+
     await safeEdit(ctx,
       `✅ *Tone:* ${tone}\n\n🎉 *All set, ${firstName}!*\n\n` +
-      `Your preferences:\n• Style: ${user.preferredStyles.join(', ')}\n• Layout: ${user.preferredLayout}\n• Tone: ${tone}\n\n` +
-      `🎙 *Now send me a voice note* with your raw thoughts or ideas.\n\n_Use /settings any time to review or change your preferences._`,
+      `Your preferences:\n• Style: ${user.preferredStyles.join(', ')}\n• Layout: ${user.preferredLayout}\n• Tone: ${tone}\n`,
       { parse_mode: 'Markdown' }
     );
+
+    // Auto-trigger generate prompt (no extra command needed)
+    await promptGenerate(ctx);
   } catch (err) {
     console.error('[onboarding] handleTonePick:', err);
     await ctx.reply('😔 Could not save your preferences. Please try /start again.');
   }
 }
 
-module.exports = { handleStart, handleChangePrefs, handleStylePick, handleLayoutPick, handleTonePick };
+module.exports = { handleStart, handleChangePrefs, handleStylePick, handleLayoutPick, handleTonePick, startStyleSetup, promptGenerate };

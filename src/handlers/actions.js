@@ -2,38 +2,49 @@
 
 const { Markup } = require('telegraf');
 const User = require('../models/User');
-const { postToLinkedIn, getValidAccessToken } = require('../services/linkedin');
+const { postToLinkedIn, getValidAccessToken, buildAuthUrl } = require('../services/linkedin');
 
-// Helper to extract raw post text from the message body
+const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
+const LINKEDIN_ENABLED = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'LINKEDIN_REDIRECT_URI'].every(k => process.env[k]);
+
+// Strip the "────── Option N ──────\n\n" header from a post message.
 function extractPostText(messageText) {
   if (!messageText) return '';
-  const headerMatch = messageText.match(/^────── Option \d+ ──────\s+/);
-  return headerMatch ? messageText.replace(headerMatch[0], '') : messageText;
+  return messageText.replace(/^────── Option \d+ ──────\s+/, '');
 }
 
 async function handlePostAction(ctx) {
-  const telegramId = String(ctx.from.id);
-  const messageText = ctx.callbackQuery.message.text;
-  
-  const postText = extractPostText(messageText);
+  // Guard: message payload can be absent on very old or forwarded callbacks
+  const messageText = ctx.callbackQuery?.message?.text ?? '';
+  const postText    = extractPostText(messageText);
+
   if (!postText) {
-    return ctx.answerCbQuery('⚠️ Could not extract the post text. Please try again.', { show_alert: true });
+    return ctx.answerCbQuery('⚠️ Could not read the post text. Please try again.', { show_alert: true });
   }
 
   await ctx.answerCbQuery('⏳ Working on it…');
 
   try {
-    const user = await User.findOne({ telegramId });
+    const telegramId = String(ctx.from.id);
+    const user       = await User.findOne({ telegramId });
     if (!user) return ctx.reply('⚠️ Your account was not found. Please send /start to re-register.');
 
     let accessToken;
     try {
       accessToken = await getValidAccessToken(user);
     } catch (tokenErr) {
-      if (tokenErr.message === 'NOT_CONNECTED')
-        return ctx.reply('🔗 *LinkedIn not connected yet!*\n\nSend /connect to link your LinkedIn account, then tap the button again.', { parse_mode: 'Markdown' });
-      if (tokenErr.message === 'TOKEN_EXPIRED')
-        return ctx.reply('🔒 Your LinkedIn session has expired.\n\nSend /connect to re-authorise and try again.', { parse_mode: 'Markdown' });
+      if (tokenErr.message === 'NOT_CONNECTED' || tokenErr.message === 'TOKEN_EXPIRED') {
+        if (!LINKEDIN_ENABLED) {
+          return ctx.reply('⚠️ LinkedIn integration is not configured on this server.');
+        }
+        const prompt = tokenErr.message === 'TOKEN_EXPIRED'
+          ? '🔒 *LinkedIn session expired.*\n\nRe-authorise to continue posting:'
+          : '🔗 *LinkedIn not connected yet!*\n\nLink your account to start posting:';
+        return ctx.reply(
+          `${prompt}\n\n[👉 Connect LinkedIn](${buildAuthUrl(String(ctx.from.id))})`,
+          { parse_mode: 'Markdown', disable_web_page_preview: true }
+        );
+      }
       throw tokenErr;
     }
 
@@ -54,16 +65,18 @@ async function handlePostAction(ctx) {
 
 async function handleRevisePick(ctx) {
   await ctx.answerCbQuery();
-  
-  const postText = extractPostText(ctx.callbackQuery.message.text);
+
+  const messageText = ctx.callbackQuery?.message?.text ?? '';
+  const postText    = extractPostText(messageText);
+
   if (!postText) {
-    return ctx.reply('⚠️ Could not extract the post text to revise. Please try again.');
+    return ctx.reply('⚠️ Could not read the post text to revise. Please try again.');
   }
 
   await ctx.reply(
-    `✏️ Reply to this message with your instructions to modify this post:\n\n---\n${postText}`,
+    `✏️ ${REVISION_MARKER}${postText}`,
     Markup.forceReply()
   );
 }
 
-module.exports = { handlePostAction, handleRevisePick, extractPostText };
+module.exports = { handlePostAction, handleRevisePick };
