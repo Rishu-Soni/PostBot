@@ -3,20 +3,21 @@
 const { Markup } = require('telegraf');
 const User = require('../models/User');
 const { postToLinkedIn, getValidAccessToken } = require('../services/linkedin');
-const { STEPS, getSession, updateSession } = require('../state/sessionStore');
+
+// Helper to extract raw post text from the message body
+function extractPostText(messageText) {
+  if (!messageText) return '';
+  const headerMatch = messageText.match(/^────── Option \d+ ──────\s+/);
+  return headerMatch ? messageText.replace(headerMatch[0], '') : messageText;
+}
 
 async function handlePostAction(ctx) {
   const telegramId = String(ctx.from.id);
-  const postId     = ctx.match[1]; // full ID string: telegramId_YYYYMMDD_HHMMSS_index
-  const session    = getSession(telegramId);
-
-  if (!session.posts || session.posts.length < 3) {
-    return ctx.answerCbQuery('⚠️ Session expired — send a new voice note.', { show_alert: true });
-  }
-
-  const post = session.posts.find(p => p.id === postId);
-  if (!post) {
-    return ctx.answerCbQuery('⚠️ Could not find that post. Please try again.', { show_alert: true });
+  const messageText = ctx.callbackQuery.message.text;
+  
+  const postText = extractPostText(messageText);
+  if (!postText) {
+    return ctx.answerCbQuery('⚠️ Could not extract the post text. Please try again.', { show_alert: true });
   }
 
   await ctx.answerCbQuery('⏳ Working on it…');
@@ -36,8 +37,7 @@ async function handlePostAction(ctx) {
       throw tokenErr;
     }
 
-    const { postUrl } = await postToLinkedIn(accessToken, post.text);
-    updateSession(telegramId, { step: STEPS.WAITING_VOICE, posts: [], temp: {} });
+    const { postUrl } = await postToLinkedIn(accessToken, postText);
     await ctx.reply(
       `🎉 *Your post is live on LinkedIn!*\n\n[View your post →](${postUrl})\n\n_Ready for your next idea? Send another voice note!_`,
       { parse_mode: 'Markdown', disable_web_page_preview: false }
@@ -54,28 +54,16 @@ async function handlePostAction(ctx) {
 
 async function handleRevisePick(ctx) {
   await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
-  const postId     = ctx.match[1]; // full ID string
-  const session    = getSession(telegramId);
-
-  if (!session.posts || session.posts.length < 3) {
-    return ctx.reply('⚠️ Session expired. Please send a new voice note first.');
+  
+  const postText = extractPostText(ctx.callbackQuery.message.text);
+  if (!postText) {
+    return ctx.reply('⚠️ Could not extract the post text to revise. Please try again.');
   }
 
-  const post = session.posts.find(p => p.id === postId);
-  if (!post) return ctx.reply('⚠️ Could not find that post. Please try again.');
-
-  updateSession(telegramId, {
-    step: STEPS.WAITING_REVISE_INPUT,
-    temp: { ...session.temp, revisePostId: postId },
-  });
-
   await ctx.reply(
-    `✏️ *Modifying a post*\n\n` +
-    `Tell me how you'd like it changed — type your instructions below.\n\n` +
-    `_Examples: "Make it shorter and punchier" or "Add a statistic about remote work"_`,
-    { parse_mode: 'Markdown' }
+    `✏️ Reply to this message with your instructions to modify this post:\n\n---\n${postText}`,
+    Markup.forceReply()
   );
 }
 
-module.exports = { handlePostAction, handleRevisePick };
+module.exports = { handlePostAction, handleRevisePick, extractPostText };

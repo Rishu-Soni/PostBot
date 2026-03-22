@@ -2,7 +2,6 @@
 
 const { Markup } = require('telegraf');
 const User  = require('../models/User');
-const { STEPS, getSession, updateSession } = require('../state/sessionStore');
 
 const STYLE_OPTIONS  = [
   { label: '⚡ Punchy & Direct', value: 'Punchy & Direct' },
@@ -50,7 +49,6 @@ async function handleStart(ctx) {
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
-    // Upsert: create user if they don't exist yet
     const raw = await User.findOneAndUpdate(
       { telegramId },
       { $setOnInsert: { telegramId, firstName } },
@@ -58,12 +56,9 @@ async function handleStart(ctx) {
     );
     const isNew = !!raw?.lastErrorObject?.upserted;
 
-    // Fetch the latest user doc (will exist now due to upsert)
     const user = await User.findOne({ telegramId });
 
-    // Returning user with completed onboarding → skip straight to posting
     if (!isNew && user?.onboardingComplete) {
-      updateSession(telegramId, { step: STEPS.WAITING_VOICE, posts: [], temp: {} });
       await ctx.reply(
         `👋 Welcome back, *${firstName}!*\n\n` +
         `🎙 Send me a *voice note* and I'll turn it into 3 polished LinkedIn posts.\n\n` +
@@ -73,8 +68,6 @@ async function handleStart(ctx) {
       return;
     }
 
-    // New user or incomplete onboarding → start onboarding flow
-    updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, posts: [], temp: {} });
     await ctx.reply(
       isNew
         ? `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice note brain-dumps into 3 polished LinkedIn posts in seconds.\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`
@@ -89,7 +82,10 @@ async function handleStart(ctx) {
 
 async function handleChangePrefs(ctx) {
   await ctx.answerCbQuery();
-  updateSession(String(ctx.from.id), { step: STEPS.ONBOARDING_STYLE, temp: {} });
+  const telegramId = String(ctx.from.id);
+  
+  await User.findOneAndUpdate({ telegramId }, { $set: { onboardingComplete: false } });
+  
   await safeEdit(ctx,
     `⚙️ *Let's update your preferences!*\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?`,
     { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
@@ -99,9 +95,13 @@ async function handleChangePrefs(ctx) {
 async function handleStylePick(ctx) {
   await ctx.answerCbQuery();
   const telegramId = String(ctx.from.id);
-  updateSession(telegramId, { step: STEPS.ONBOARDING_LAYOUT, temp: { ...getSession(telegramId).temp, chosenStyle: ctx.match[1] } });
+  const chosenStyle = ctx.match[1];
+  const styles = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
+  
+  await User.findOneAndUpdate({ telegramId }, { $set: { preferredStyles: styles } });
+  
   await safeEdit(ctx,
-    `✅ *Writing style:* ${ctx.match[1]}\n\n*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
+    `✅ *Writing style:* ${chosenStyle}\n\n*Step 2 of 3 — Post Layout*\nHow should your posts be formatted?`,
     { parse_mode: 'Markdown', ...buildKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
   );
 }
@@ -109,9 +109,12 @@ async function handleStylePick(ctx) {
 async function handleLayoutPick(ctx) {
   await ctx.answerCbQuery();
   const telegramId = String(ctx.from.id);
-  updateSession(telegramId, { step: STEPS.ONBOARDING_TONE, temp: { ...getSession(telegramId).temp, chosenLayout: ctx.match[1] } });
+  const chosenLayout = ctx.match[1];
+  
+  await User.findOneAndUpdate({ telegramId }, { $set: { preferredLayout: chosenLayout } });
+  
   await safeEdit(ctx,
-    `✅ *Layout:* ${ctx.match[1]}\n\n*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
+    `✅ *Layout:* ${chosenLayout}\n\n*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
     { parse_mode: 'Markdown', ...buildKeyboard(TONE_OPTIONS, 'ob_tone') }
   );
 }
@@ -119,30 +122,19 @@ async function handleLayoutPick(ctx) {
 async function handleTonePick(ctx) {
   await ctx.answerCbQuery();
   const telegramId = String(ctx.from.id);
-  const { chosenStyle, chosenLayout } = getSession(telegramId).temp ?? {};
-
-  if (!chosenStyle || !chosenLayout) {
-    updateSession(telegramId, { step: STEPS.ONBOARDING_STYLE, temp: {} });
-    await ctx.reply(
-      '⚠️ Your setup session expired. Let\'s start over!\n\n*Step 1 of 3 — Writing Style*\nHow would you like your posts to be written?',
-      { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style') }
-    );
-    return;
-  }
-
-  const styles    = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
-  const tone      = ctx.match[1];
+  const tone = ctx.match[1];
   const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
-    await User.findOneAndUpdate(
+    const user = await User.findOneAndUpdate(
       { telegramId },
-      { $set: { preferredStyles: styles, preferredLayout: chosenLayout, preferredTone: tone, onboardingComplete: true } }
+      { $set: { preferredTone: tone, onboardingComplete: true } },
+      { new: true }
     );
-    updateSession(telegramId, { step: STEPS.WAITING_VOICE, temp: {} });
+    
     await safeEdit(ctx,
       `✅ *Tone:* ${tone}\n\n🎉 *All set, ${firstName}!*\n\n` +
-      `Your preferences:\n• Style: ${styles.join(', ')}\n• Layout: ${chosenLayout}\n• Tone: ${tone}\n\n` +
+      `Your preferences:\n• Style: ${user.preferredStyles.join(', ')}\n• Layout: ${user.preferredLayout}\n• Tone: ${tone}\n\n` +
       `🎙 *Now send me a voice note* with your raw thoughts or ideas.\n\n_Use /settings any time to review or change your preferences._`,
       { parse_mode: 'Markdown' }
     );

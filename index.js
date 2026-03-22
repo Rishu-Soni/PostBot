@@ -32,7 +32,6 @@ const { handlePostAction, handleRevisePick }                   = require('./src/
 const { handleText }                                           = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl }                   = require('./src/services/linkedin');
 const User                                                     = require('./src/models/User');
-const { updateSession, STEPS }                                 = require('./src/state/sessionStore');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
@@ -176,7 +175,6 @@ bot.command('delData', async (ctx) => {
   try {
     await connectDB();
 
-    // Try to delete the /delData command message from chat
     await ctx.deleteMessage().catch(() => {});
 
     await User.findOneAndUpdate(
@@ -196,9 +194,6 @@ bot.command('delData', async (ctx) => {
       },
       { upsert: false }
     );
-
-    // Reset in-memory session to idle
-    updateSession(telegramId, { step: STEPS.IDLE, posts: [], temp: {} });
 
     await ctx.reply(
       '🗑 *Your data has been deleted.*\n\n' +
@@ -221,10 +216,8 @@ bot.action(/^ob_style:(.+)$/,  async (ctx, next) => { await connectDB(); return 
 bot.action(/^ob_layout:(.+)$/, async (ctx, next) => { await connectDB(); return handleLayoutPick(ctx, next); });
 bot.action(/^ob_tone:(.+)$/,   async (ctx, next) => { await connectDB(); return handleTonePick(ctx, next); });
 
-// Post ID-based callbacks: post_<telegramId_YYYYMMDD_HHMMSS_index>
-bot.action(/^post_(.+)$/,        async (ctx, next) => { await connectDB(); return handlePostAction(ctx, next); });
-// Revise pick ID-based callbacks: revise_pick_<telegramId_YYYYMMDD_HHMMSS_index>
-bot.action(/^revise_pick_(.+)$/, async (ctx, next) => { await connectDB(); return handleRevisePick(ctx, next); });
+bot.action('post_action',      async (ctx, next) => { await connectDB(); return handlePostAction(ctx, next); });
+bot.action('revise_action',    async (ctx, next) => { await connectDB(); return handleRevisePick(ctx, next); });
 
 bot.on('voice', async (ctx, next) => { await connectDB(); return handleVoice(ctx, next); });
 bot.on('text',  async (ctx, next) => { await connectDB(); return handleText(ctx, next); });

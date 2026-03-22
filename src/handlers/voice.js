@@ -4,32 +4,28 @@ const axios  = require('axios');
 const { Markup } = require('telegraf');
 const User   = require('../models/User');
 const { generatePosts } = require('../services/gemini');
-const { STEPS, getSession, updateSession } = require('../state/sessionStore');
-
-// ID: telegramId_YYYYMMDD_HHMMSS_index  e.g. 987654321_20260322_235331_0
-function makePostId(telegramId, index) {
-  const now = new Date();
-  const d = now.toISOString().replace(/[-:T]/g, '').slice(0, 15); // YYYYMMDDHHmmss (no ms)
-  return `${telegramId}_${d.slice(0, 8)}_${d.slice(8, 14)}_${index}`;
-}
 
 async function handleVoice(ctx) {
   if (!ctx.message?.voice) return;
 
   const telegramId = String(ctx.from.id);
-  const session    = getSession(telegramId);
   const voice      = ctx.message.voice;
 
-  if (session.step === STEPS.WAITING_REVISE_INPUT) {
-    const hint = session.temp?.revisePostId
-      ? `The user wants to revise the post with ID ${session.temp.revisePostId} based on this voice note.`
-      : 'The user wants to revise their previous post based on this voice note.';
-    await _process(ctx, voice.file_id, telegramId, hint);
-    return;
+  let refinementHint = null;
+  const replyText = ctx.message.reply_to_message?.text;
+  
+  if (replyText && replyText.includes('Reply to this message with your instructions to modify this post:\n\n---')) {
+    const parts = replyText.split('\n---\n');
+    if (parts.length > 1) {
+      const postText = parts.slice(1).join('\n---\n').trim();
+      refinementHint = `The user wants to revise this specific post based on their voice note:\n"${postText}"`;
+    }
   }
 
-  if (session.step !== STEPS.WAITING_VOICE) {
-    await ctx.reply('⚠️ Please complete the setup first, then send your voice note.');
+  // Double check user is fully onboarded since there are no sessions to track it
+  const user = await User.findOne({ telegramId });
+  if (!user || user.onboardingComplete !== true) {
+    await ctx.reply('⚠️ Please complete the setup first, then send your voice note. Send /start to begin.');
     return;
   }
 
@@ -40,10 +36,10 @@ async function handleVoice(ctx) {
     return ctx.reply(`📦 Voice note too large (${(voice.file_size / 1_048_576).toFixed(1)} MB). Please send a shorter recording.`);
   }
 
-  await _process(ctx, voice.file_id, telegramId, null);
+  await _process(ctx, voice.file_id, user, refinementHint);
 }
 
-async function _process(ctx, fileId, telegramId, refinementHint) {
+async function _process(ctx, fileId, user, refinementHint) {
   const thinkingMsg = await ctx.reply(
     refinementHint
       ? '🔄 Refining your posts with Gemini… this may take 15–30 seconds.'
@@ -55,35 +51,21 @@ async function _process(ctx, fileId, telegramId, refinementHint) {
     const audioResp   = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
     const audioBuffer = Buffer.from(audioResp.data);
 
-    let user = await User.findOne({ telegramId });
-    if (!user) {
-      user = await User.findOneAndUpdate(
-        { telegramId },
-        { $setOnInsert: { telegramId, firstName: ctx.from.first_name || '' } },
-        { upsert: true, new: true }
-      );
-    }
-
     const postStrings = await generatePosts(audioBuffer, {
       styles: user.preferredStyles ?? ['Punchy & Direct', 'Storytelling', 'Analytical'],
       layout: user.preferredLayout ?? 'Single block',
       tone:   user.preferredTone   ?? 'Professional',
     }, refinementHint);
 
-    // Wrap each string in an {id, text} object for ID-based lookups
-    const posts = postStrings.map((text, i) => ({ id: makePostId(telegramId, i), text }));
-
-    updateSession(telegramId, { step: STEPS.WAITING_VOICE, posts, temp: {} });
-
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
     await ctx.reply('✨ *Here are your 3 LinkedIn posts:*', { parse_mode: 'Markdown' });
 
-    for (const post of posts) {
+    for (let i = 0; i < postStrings.length; i++) {
       await ctx.reply(
-        `────── Option ${posts.indexOf(post) + 1} ──────\n\n${post.text}`,
+        `────── Option ${i + 1} ──────\n\n${postStrings[i]}`,
         Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Post This Option', `post_${post.id}`)],
-          [Markup.button.callback('🔄 Modify This Option', `revise_pick_${post.id}`)],
+          [Markup.button.callback('✅ Post This Option', 'post_action')],
+          [Markup.button.callback('🔄 Modify This Option', 'revise_action')],
         ])
       );
     }
@@ -98,4 +80,4 @@ async function _process(ctx, fileId, telegramId, refinementHint) {
   }
 }
 
-module.exports = { handleVoice, makePostId };
+module.exports = { handleVoice };
