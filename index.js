@@ -125,10 +125,13 @@ bot.start(async (ctx) => { await connectDB(); return handleStart(ctx); });
 bot.command('generate', async (ctx) => {
   await connectDB();
   const user = await User.findOne({ telegramId: String(ctx.from.id) });
-  if (user?.onboardingComplete) {
+
+  // User must have completed onboarding AND have at least one preferred style saved
+  if (user?.onboardingComplete && user.preferredStyles?.length > 0) {
     await promptGenerate(ctx);
   } else {
-    await ctx.reply('⚙️ Let\'s set up your preferences first before generating.');
+    // Auto-run /setStyle; on completion it will auto-trigger /generate (promptGenerate)
+    await ctx.reply('⚙️ Let\'s set up your preferred post style first.');
     await startStyleSetup(ctx);
   }
 });

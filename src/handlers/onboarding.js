@@ -44,15 +44,39 @@ async function safeEdit(ctx, text, extra) {
   }
 }
 
-// Prompt the user to send a voice note. Called after style setup and by /generate.
+/**
+ * Prompt the user to send a voice note.
+ * First checks if the user has preferredStyles set in the DB.
+ * If not, auto-triggers style setup instead.
+ */
 async function promptGenerate(ctx) {
+  const telegramId = String(ctx.from.id);
+
+  try {
+    const user = await User.findOne({ telegramId });
+    // If styles are not set, run setStyle first, which will auto-call promptGenerate on completion
+    if (!user || !user.preferredStyles?.length || !user.onboardingComplete) {
+      await ctx.reply(
+        '⚙️ *Let\'s set your preferred post style first!*\n\nOnce done, I\'ll prompt you for a voice note automatically.',
+        { parse_mode: 'Markdown' }
+      );
+      return startStyleSetup(ctx);
+    }
+  } catch (err) {
+    console.error('[onboarding] promptGenerate DB check:', err);
+    return ctx.reply('😔 Something went wrong checking your preferences. Please try again.');
+  }
+
   await ctx.reply(
     '🎙 *Ready!* Send me a voice note and I\'ll turn it into 3 polished LinkedIn posts.',
     { parse_mode: 'Markdown' }
   );
 }
 
-// Kick off the 3-step style setup. Used by /start (new users) and /setStyle.
+/**
+ * Kick off the 3-step style setup.
+ * Used by /start (new users), /setStyle, and as a fallback from /generate.
+ */
 async function startStyleSetup(ctx) {
   const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
   await User.findOneAndUpdate(
@@ -65,6 +89,11 @@ async function startStyleSetup(ctx) {
   );
 }
 
+/**
+ * /start handler.
+ * New user → run style setup.
+ * Returning user with complete onboarding → welcome back.
+ */
 async function handleStart(ctx) {
   if (!ctx.from) return;
   const telegramId = String(ctx.from.id);
@@ -151,30 +180,34 @@ async function handleTonePick(ctx) {
   const tone       = ctx.match[1];
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
+  let user;
   try {
-    const user = await User.findOneAndUpdate(
+    user = await User.findOneAndUpdate(
       { telegramId },
       { $set: { preferredTone: tone, onboardingComplete: true } },
       { new: true }
     );
-
-    // Guard: user should always exist here (created in /start upsert), but be safe
-    if (!user) {
-      return ctx.reply('⚠️ Your account was not found. Please send /start to re-register.');
-    }
-
-    await safeEdit(ctx,
-      `✅ *Tone:* ${tone}\n\n🎉 *All set, ${firstName}!*\n\n` +
-      `Your preferences:\n• Style: ${user.preferredStyles.join(', ')}\n• Layout: ${user.preferredLayout}\n• Tone: ${tone}\n`,
-      { parse_mode: 'Markdown' }
-    );
-
-    // Auto-trigger generate prompt (no extra command needed)
-    await promptGenerate(ctx);
   } catch (err) {
-    console.error('[onboarding] handleTonePick:', err);
-    await ctx.reply('😔 Could not save your preferences. Please try /start again.');
+    // DB error — show error, do NOT auto-trigger generate
+    console.error('[onboarding] handleTonePick DB save failed:', err);
+    await ctx.reply('😔 Could not save your preferences due to a database error. Please try /setStyle again.');
+    return;
   }
+
+  // Guard: user should always exist here (created in /start upsert), but be safe
+  if (!user) {
+    await ctx.reply('⚠️ Your account was not found. Please send /start to re-register.');
+    return;
+  }
+
+  await safeEdit(ctx,
+    `✅ *Tone:* ${tone}\n\n🎉 *All set, ${firstName}!*\n\n` +
+    `Your preferences:\n• Style: ${user.preferredStyles.join(', ')}\n• Layout: ${user.preferredLayout}\n• Tone: ${tone}\n`,
+    { parse_mode: 'Markdown' }
+  );
+
+  // Auto-trigger generate prompt — only reached if DB save above succeeded
+  await promptGenerate(ctx);
 }
 
 module.exports = { handleStart, handleChangePrefs, handleStylePick, handleLayoutPick, handleTonePick, startStyleSetup, promptGenerate };
