@@ -16,13 +16,13 @@ async function callGemini(payload) {
   return text;
 }
 
-async function generatePosts(audioBuffer, { styles, layout, tone }, refinementHint = null) {
+async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample }, refinementHint = null) {
   const systemInstruction =
     `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
 
 CORE PARAMETERS:
 - WRITING STYLES: Create one post for each of these styles: ${styles.join(', ')}.
-- LAYOUT & STRUCTURE: Strictly follow this layout: ${layout}.
+- LAYOUT & STRUCTURE: ${layoutExample ? `Strictly mirror the structural layout of this example post:\n"${layoutExample}"\n(Ignore the content, just mimic the paragraph breaks, sentence length, and structural flow).` : `Strictly follow this layout: ${layout}.`}
 - TONE: Maintain a ${tone} tone throughout all posts.
 - LANGUAGE: Strictly English.
 
@@ -125,4 +125,35 @@ function parsePostsJson(rawText) {
   return posts;
 }
 
-module.exports = { generatePosts, revisePosts };
+async function extractPreferences(exampleText) {
+  const systemInstruction = 
+    `You are an expert copywriter analyzer. A user has provided an example of their writing.
+    Analyze the text and extract their preferred 'Tone' and 'Styles'.
+    
+    Valid Styles (Pick up to 3): Punchy & Direct, Storytelling, Analytical, Conversational.
+    Valid Tones (Pick exactly 1): Professional, Casual, Motivational, Humorous.
+    
+    Return ONLY a JSON object with two keys:
+    {
+      "preferredTone": "Tone Name",
+      "preferredStyles": ["Style 1", "Style 2"]
+    }
+    No markdown formatting, no comments, just the raw JSON.`;
+
+  const text = await callGemini({
+    model: MODEL,
+    config: { systemInstruction, responseMimeType: 'application/json' },
+    contents: [{ role: 'user', parts: [{ text: exampleText }] }],
+  });
+  
+  try {
+    const rawMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+    const jsonStr = rawMatch ? rawMatch[1] : text;
+    return JSON.parse(jsonStr.trim());
+  } catch (err) {
+    console.error('[Gemini] Failed to parse preferences:', text);
+    throw new Error('Analysis failed. Please try again.');
+  }
+}
+
+module.exports = { generatePosts, revisePosts, extractPreferences };

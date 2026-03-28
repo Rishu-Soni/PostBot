@@ -41,18 +41,81 @@ async function getPersonUrn(accessToken) {
   return `urn:li:person:${res.data.sub}`;
 }
 
-async function postToLinkedIn(accessToken, postText) {
+async function registerAndUploadMedia(accessToken, authorUrn, ctx, fileId) {
+  // 1. Fetch file buffer from Telegram
+  const fileLink = await ctx.telegram.getFileLink(fileId);
+  const fileResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
+  const buffer = Buffer.from(fileResp.data);
+
+  // 2. Register Upload on LinkedIn
+  const registerRes = await axios.post(
+    `${API_BASE}/assets?action=registerUpload`,
+    {
+      registerUploadRequest: {
+        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+        owner: authorUrn,
+        serviceRelationships: [
+          { relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }
+        ]
+      }
+    },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 10_000 }
+  );
+
+  const uploadUrl = registerRes.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
+  const assetUrn = registerRes.data.value.asset;
+
+  // 3. Upload Binary Data
+  await axios.put(uploadUrl, buffer, {
+    headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${accessToken}` },
+    maxBodyLength: Infinity,
+    timeout: 30_000
+  });
+
+  return assetUrn;
+}
+
+async function postToLinkedIn(accessToken, postText, ctx, pendingMediaIds = []) {
   const authorUrn = await getPersonUrn(accessToken);
+  
+  let shareMediaCategory = 'NONE';
+  let mediaArray = [];
+  
+  // Handle single or multiple image uploads
+  if (pendingMediaIds && pendingMediaIds.length > 0) {
+      try {
+          const uploads = pendingMediaIds.map(fileId => registerAndUploadMedia(accessToken, authorUrn, ctx, fileId));
+          const assetUrns = await Promise.all(uploads);
+          
+          shareMediaCategory = 'IMAGE';
+          mediaArray = assetUrns.map(urn => ({
+              status: "READY",
+              description: { text: "Uploaded media" },
+              media: urn
+          }));
+      } catch (err) {
+          console.error('[LinkedIn] Error uploading media', err);
+          throw new Error('[LinkedIn] Failed to upload media files to your account.');
+      }
+  }
+
   const res = await axios.post(
     `${API_BASE}/ugcPosts`,
     {
       author: authorUrn,
       lifecycleState: 'PUBLISHED',
-      specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: postText }, shareMediaCategory: 'NONE' } },
+      specificContent: { 
+        'com.linkedin.ugc.ShareContent': { 
+          shareCommentary: { text: postText }, 
+          shareMediaCategory: shareMediaCategory,
+          media: shareMediaCategory !== 'NONE' ? mediaArray : undefined
+        } 
+      },
       visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
     },
     { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' }, timeout: 15_000 }
   );
+  
   const postId = res.data.id ?? res.headers['x-restli-id'];
   return { postUrl: postId ? `https://www.linkedin.com/feed/update/${encodeURIComponent(postId)}/` : 'https://www.linkedin.com/feed/' };
 }
@@ -76,7 +139,6 @@ async function getValidAccessToken(userDoc) {
     }
   }
 
-  // Pro-actively refresh in background if expiring within 7 days
   if (expiry > 0 && (expiry - now) < 7 * 24 * 60 * 60 * 1000 && userDoc.linkedinRefreshToken) {
     refreshAccessToken(userDoc.linkedinRefreshToken)
       .then(async ({ accessToken, expiresIn }) => {
