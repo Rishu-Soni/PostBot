@@ -31,9 +31,8 @@ async function handleText(ctx) {
 
       user.preferredTone     = prefs.preferredTone    || 'Professional';
       user.preferredStyles   = prefs.preferredStyles?.length ? prefs.preferredStyles : ['Punchy & Direct'];
-      user.preferredLayout   = 'Short Para'; // Default structural layout label; layout driven by pinnedExampleText
+      user.preferredLayout   = 'Short Para'; // Default structural layout label; layout driven by dynamically pinned message
       user.inputState        = 'idle';
-      user.pinnedExampleText = text;
       user.onboardingComplete = true;
       await user.save();
 

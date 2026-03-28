@@ -8,16 +8,36 @@ const { processGeneration, sendCarouselPost } = require('./voice');
 const LINKEDIN_ENABLED = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'LINKEDIN_REDIRECT_URI'].every(k => process.env[k]);
 const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
 
-// Handles [Done Uploading] or [No Media]
-async function handleMediaComplete(ctx) {
+// Handles [Add media] (gen_choice:media) or [Continue without one] (gen_choice:nomedia)
+async function handleMediaChoice(ctx) {
   await ctx.answerCbQuery();
+  const choice = ctx.match[1];
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
-  if (!user || user.inputState !== 'awaiting_media') return;
+  if (!user || user.inputState !== 'idle' || !user.pendingVoiceFileId) return;
 
-  // Let the user know we're moving on
-  await ctx.editMessageText('✅ Media selection finished. Generating your posts...');
-  await processGeneration(ctx, user);
+  await ctx.editMessageText('✅ Got it. Generating your posts...');
+  await processGeneration(ctx, user, choice);
+}
+
+// Handles Carousel [✅ Choose this]
+async function handleCarouselChooseMedia(ctx) {
+  await ctx.answerCbQuery();
+  const index = parseInt(ctx.match[1], 10);
+  const telegramId = String(ctx.from.id);
+  const user = await User.findOne({ telegramId });
+
+  if (!user || !user.currentPosts || !user.currentPosts[index]) {
+    return ctx.reply('⚠️ Could not find the post. Please try generating again.');
+  }
+
+  user.inputState = 'awaiting_media_upload';
+  user.selectedPostIndex = index;
+  user.pendingMediaIds = [];
+  user.mediaDoneMessageId = null;
+  await user.save();
+
+  await ctx.reply('📸 Please upload your media (photos or videos).');
 }
 
 // Handles Carousel [Prev] and [Next]
@@ -52,7 +72,7 @@ async function handleCarouselMod(ctx) {
   );
 }
 
-// Handles Carousel [Post to LinkedIn]
+// Handles Carousel [Post to LinkedIn] (no-media path)
 async function handlePostAction(ctx) {
   const index = parseInt(ctx.match[1], 10);
   const telegramId = String(ctx.from.id);
@@ -67,6 +87,36 @@ async function handlePostAction(ctx) {
   await ctx.answerCbQuery('⏳ Working on it…');
   const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn, please wait...');
 
+  await executeLinkedInPublish(ctx, user, postText, thinkingMsg);
+}
+
+// Handles [✅ Done and post] (media path)
+async function handleMediaDonePost(ctx) {
+  await ctx.answerCbQuery();
+  const telegramId = String(ctx.from.id);
+  const user = await User.findOne({ telegramId });
+  
+  if (!user || user.inputState !== 'awaiting_media_upload' || user.selectedPostIndex === null) {
+    return ctx.reply('⚠️ Session expired or invalid. Please generate a new post.');
+  }
+
+  const index = user.selectedPostIndex;
+  const postText = user.currentPosts[index];
+
+  if (!postText) {
+    return ctx.reply('⚠️ Could not read the post text. Please try again.');
+  }
+
+  if (user.mediaDoneMessageId) {
+    await ctx.telegram.deleteMessage(ctx.chat.id, user.mediaDoneMessageId).catch(() => {});
+  }
+
+  const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn with your media, please wait...');
+  await executeLinkedInPublish(ctx, user, postText, thinkingMsg);
+}
+
+// Shared publish logic
+async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
   try {
     let accessToken;
     try {
@@ -92,9 +142,11 @@ async function handlePostAction(ctx) {
     
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(()=>{});
     
-    // Clear the pending media ONLY after successful post
     user.pendingMediaIds = [];
     user.currentPosts = [];
+    user.inputState = 'idle';
+    user.selectedPostIndex = null;
+    user.mediaDoneMessageId = null;
     await user.save();
 
     await ctx.reply(
@@ -102,7 +154,7 @@ async function handlePostAction(ctx) {
       { parse_mode: 'Markdown', disable_web_page_preview: false }
     );
   } catch (err) {
-    console.error('[actions] handlePostAction:', err.message);
+    console.error('[actions] publish error:', err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(()=>{});
     await ctx.reply(
       '😔 Failed to post to LinkedIn.\n\n' +
@@ -112,4 +164,4 @@ async function handlePostAction(ctx) {
   }
 }
 
-module.exports = { handlePostAction, handleMediaComplete, handleCarouselNav, handleCarouselMod };
+module.exports = { handlePostAction, handleMediaChoice, handleMediaDonePost, handleCarouselChooseMedia, handleCarouselNav, handleCarouselMod };

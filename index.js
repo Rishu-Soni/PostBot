@@ -65,13 +65,13 @@ app.get('/setup', async (req, res) => {
 
     // Register the 7 bot menu commands visible to every user
     await bot.telegram.setMyCommands([
-      { command: 'start', description: 'Launch Postbot' },
+      { command: 'start', description: 'Launch Postbot setup' },
       { command: 'generate', description: 'Start generating a post' },
       { command: 'setStyle', description: 'Set preferred post style' },
       { command: 'connect', description: 'Link your LinkedIn account' },
       { command: 'settings', description: 'View & update your preferences' },
-      { command: 'delData', description: 'Delete your data from our database' },
-      { command: 'help', description: 'Show help message' },
+      { command: 'delData', description: 'Delete your data completely' },
+      { command: 'help', description: 'Show quick guide' },
     ]);
 
     res.send(`✅ Webhook set to: ${WEBHOOK_URL}\n✅ Bot commands registered.`);
@@ -125,16 +125,8 @@ bot.start(async (ctx) => { await connectDB(); return handleStart(ctx); });
 
 bot.command('generate', async (ctx) => {
   await connectDB();
-  const user = await User.findOne({ telegramId: String(ctx.from.id) });
-
-  // User must have completed onboarding AND have at least one preferred style saved
-  if (user?.onboardingComplete && user.preferredStyles?.length > 0) {
-    await promptGenerate(ctx);
-  } else {
-    // Auto-run /setStyle; on completion it will auto-trigger /generate (promptGenerate)
-    await ctx.reply('⚙️ Let\'s set up your preferred post style first.');
-    await startSetupPrompt(ctx);
-  }
+  const { handleGenerateFlow } = require('./src/handlers/onboarding');
+  return handleGenerateFlow(ctx);
 });
 
 bot.command('setStyle', async (ctx) => {
@@ -183,21 +175,16 @@ bot.command('settings', async (ctx) => {
 });
 
 bot.command('help', (ctx) => ctx.reply(
-  '📖 *Postbot Help*\n\n' +
-  '*Commands:*\n' +
-  '• /start — Launch Postbot\n' +
-  '• /generate — Start generating a post\n' +
-  '• /setStyle — Set preferred post style\n' +
-  '• /connect — Link your LinkedIn account\n' +
-  '• /settings — View & update your preferences\n' +
-  '• /delData — Delete your data from our database\n' +
-  '• /help — Show this message\n\n' +
-  '*How it works:*\n' +
-  '1. Send /generate then record a voice note with your raw thoughts\n' +
-  '2. Get 3 polished LinkedIn posts instantly\n' +
-  '3. Tap Post to publish, or Modify to refine any post\n\n' +
-  '_Voice notes must be under 2 minutes._',
-  { parse_mode: 'Markdown' }
+  'What I can do:\n' +
+  '✨ The Postbot Flow: Complete a quick one-time setup > speak your mind into a voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n' +
+  '🎛️ Commands:\n' +
+  '/start - Kick off smart onboarding to extract your unique writing style.\n' +
+  '/generate - Record a voice note and let me generate your next post.\n' +
+  '/setStyle - Manually customize your preferred layouts, tone, and formatting.\n' +
+  '/connect - Securely link your LinkedIn account for instant publishing.\n' +
+  '/settings - View your current configuration and brand guidelines.\n' +
+  '/delData - Erase your preferences, credentials, and transient data for complete privacy.\n' +
+  '/help - Display this quick guide to all available commands.'
 ));
 
 bot.command('delData', async (ctx) => {
@@ -214,7 +201,7 @@ bot.command('delData', async (ctx) => {
           onboardingComplete: false, linkedinAccessToken: null, linkedinRefreshToken: null,
           linkedinTokenExpiry: null, delDataAt: new Date(),
           inputState: 'idle', pendingVoiceFileId: null, pendingMediaIds: [], currentPosts: [],
-          pinnedExampleText: null, pendingRefinementHint: null,
+          selectedPostIndex: null, mediaDoneMessageId: null, pendingRefinementHint: null,
         },
         $inc: { countDelData: 1 },
       }
@@ -250,8 +237,11 @@ bot.action(/^carousel_prev:(\d+)$/, async (ctx) => { await connectDB(); return h
 bot.action(/^carousel_next:(\d+)$/, async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
 bot.action(/^carousel_mod:(\d+)$/, async (ctx) => { await connectDB(); return handleCarouselMod(ctx); });
 bot.action(/^carousel_post:(\d+)$/, async (ctx) => { await connectDB(); return handlePostAction(ctx); });
-bot.action('media_skip', async (ctx) => { await connectDB(); return handleMediaComplete(ctx); });
-bot.action('media_done', async (ctx) => { await connectDB(); return handleMediaComplete(ctx); });
+bot.action(/^gen_choice:(.+)$/, async (ctx) => { await connectDB(); const { handleMediaChoice } = require('./src/handlers/actions'); return handleMediaChoice(ctx); });
+bot.action(/^carousel_choose_media:(\d+)$/, async (ctx) => { await connectDB(); const { handleCarouselChooseMedia } = require('./src/handlers/actions'); return handleCarouselChooseMedia(ctx); });
+bot.action('media_done_post', async (ctx) => { await connectDB(); const { handleMediaDonePost } = require('./src/handlers/actions'); return handleMediaDonePost(ctx); });
+bot.action('gen_saved', async (ctx) => { await connectDB(); const { promptGenerate } = require('./src/handlers/onboarding'); return promptGenerate(ctx); });
+bot.action('gen_new', async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
 
 bot.on('voice', async (ctx) => { await connectDB(); return handleVoice(ctx); });
 bot.on('text', async (ctx) => { await connectDB(); return handleText(ctx); });
@@ -261,28 +251,35 @@ bot.on(['photo', 'video'], async (ctx) => {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  if (user && user.inputState === 'awaiting_media') {
+  if (user && user.inputState === 'awaiting_media_upload') {
     let fileId;
     if (ctx.message.photo) {
-      // Telegram sends multiple sizes, get the largest one
       fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     } else if (ctx.message.video) {
       fileId = ctx.message.video.file_id;
     }
     
     if (fileId) {
+      // Clean UI: delete old mediaDone message to prevent scrolling
+      if (user.mediaDoneMessageId) {
+        await ctx.telegram.deleteMessage(ctx.chat.id, user.mediaDoneMessageId).catch(() => {});
+      }
+
       user.pendingMediaIds.push(fileId);
-      await user.save();
-      return ctx.reply('📸 Media attached! Send another, or click one of the buttons below to proceed.', {
-        reply_to_message_id: ctx.message.message_id
+      
+      const doneMsg = await ctx.reply('✅ Media attached! Send another, or click Done to publish.', {
+        reply_to_message_id: ctx.message.message_id,
+        ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and post', 'media_done_post')]])
       });
+
+      user.mediaDoneMessageId = doneMsg.message_id;
+      await user.save();
+      return;
     }
   }
 
   // Not awaiting media
-  return ctx.reply('🎙 Please send a voice note first to generate a post, or use /generate.', {
-    reply_to_message_id: ctx.message.message_id
-  });
+  return ctx.reply('🎙 Please generate a post and choose it first before sending media, or use /generate.');
 });
 
 bot.catch((err, ctx) => {

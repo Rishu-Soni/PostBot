@@ -67,26 +67,42 @@ async function safeEdit(ctx, text, extra) {
  * Ensures user is onboarded, then prompts for voice.
  */
 async function promptGenerate(ctx) {
-  const telegramId = String(ctx.from.id);
-
-  try {
-    const user = await User.findOne({ telegramId });
-    if (!user || !user.onboardingComplete) {
-      await ctx.reply(
-        '⚙️ *Let\'s set your preferences first!*\n\nOnce done, I\'ll prompt you automatically.',
-        { parse_mode: 'Markdown' }
-      );
-      return startSetupPrompt(ctx);
-    }
-  } catch (err) {
-    console.error('[onboarding] promptGenerate DB check:', err);
-    return ctx.reply('😔 Something went wrong checking your preferences. Please try again.');
-  }
-
+  if (ctx.callbackQuery) await ctx.answerCbQuery();
   await ctx.reply(
     '🎙 *Ready!* Send me a voice note and I\'ll turn it into polished LinkedIn posts.',
     { parse_mode: 'Markdown' }
   );
+}
+
+/**
+ * Handle new /generate flow interceptor
+ */
+async function handleGenerateFlow(ctx) {
+  try {
+    const telegramId = String(ctx.from.id);
+    const user = await User.findOne({ telegramId });
+    
+    const chat = await ctx.telegram.getChat(ctx.chat.id);
+    const pinnedMessage = chat.pinned_message?.text;
+    const hasDbPreferences = user?.onboardingComplete && user.preferredStyles?.length > 0;
+
+    if (!pinnedMessage && !hasDbPreferences) {
+      await ctx.reply('⚙️ Let\'s set up your preferred post style first.');
+      return startSetupPrompt(ctx);
+    }
+
+    await ctx.reply(
+      'Do you want to continue with your saved style/layout, or set up a new one?',
+      {
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('Continue with saved data', 'gen_saved'), Markup.button.callback('Set up new one', 'gen_new')]
+        ])
+      }
+    );
+  } catch (err) {
+    console.error('[onboarding] handleGenerateFlow:', err);
+    await ctx.reply('😔 Something went wrong checking your preferences. Please try again.');
+  }
 }
 
 /**
@@ -120,25 +136,20 @@ async function handleStart(ctx) {
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
-    const user = await User.findOneAndUpdate(
-      { telegramId },
-      { $setOnInsert: { telegramId, firstName } },
-      { upsert: true, new: true }
-    );
+    let user = await User.findOne({ telegramId });
+    const isNewUser = !user;
+    
+    if (isNewUser) {
+      user = await User.create({ telegramId, firstName });
+    }
 
-    if (user.onboardingComplete) {
-      await ctx.reply(
-        `👋 Welcome back, *${firstName}!*\n\n` +
-        `🎙 Send me a *voice note* and I'll turn it into polished LinkedIn posts.\n\n` +
-        `_Use /settings to review your preferences or /generate to start._`,
-        { parse_mode: 'Markdown' }
-      );
+    const introText = 'What I can do:\n✨ The Postbot Flow: Complete a quick one-time setup > speak your mind into a voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n🎛️ Commands:\n/start - Kick off smart onboarding to extract your unique writing style.\n/generate - Record a voice note and let me generate your next post.\n/setStyle - Manually customize your preferred layouts, tone, and formatting.\n/connect - Securely link your LinkedIn account for instant publishing.\n/settings - View your current configuration and brand guidelines.\n/delData - Erase your preferences, credentials, and transient data for complete privacy.\n/help - Display this quick guide to all available commands.';
+    await ctx.reply(introText);
+
+    if (isNewUser) {
+      return handleGenerateFlow(ctx);
     } else {
-      await ctx.reply(
-        `👋 Welcome to *Postbot*, ${firstName}!\n\nI turn your voice notes into viral-ready LinkedIn posts in seconds.\n\nLet's set up your preferences first.`,
-        { parse_mode: 'Markdown' }
-      );
-      await startSetupPrompt(ctx);
+      await ctx.reply('Would you like to view /help or start a new post with /generate?');
     }
   } catch (err) {
     console.error('[onboarding] handleStart:', err);
@@ -259,5 +270,5 @@ async function handleTonePick(ctx) {
 
 module.exports = { 
   handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick, 
-  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt 
+  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt, handleGenerateFlow 
 };

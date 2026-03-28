@@ -26,11 +26,11 @@ async function handleVoice(ctx) {
 
   const user = await User.findOne({ telegramId });
 
-  // Guard: user already has a pending voice note awaiting media selection
-  if (user?.inputState === 'awaiting_media') {
+  // Guard: user already has a pending voice note awaiting media upload
+  if (user?.inputState === 'awaiting_media_upload') {
     return ctx.reply(
       '⚠️ You already have a pending voice note waiting for media.\n\n' +
-      'Please click *No Media* or *Done Uploading* on the previous prompt first.\n\n' +
+      'Please click *Done and post* on the previous prompt first.\n\n' +
       'Or send /generate to discard it and start over.',
       { parse_mode: 'Markdown' }
     );
@@ -54,30 +54,37 @@ async function handleVoice(ctx) {
 
   // Save voice file_id and reset media queue
   user.pendingVoiceFileId = voice.file_id;
-  user.inputState = 'awaiting_media';
+  user.inputState = 'idle';
   user.pendingMediaIds = [];
-  // Store revision hint in its dedicated field (not in pinnedExampleText)
+  // Store revision hint in its dedicated field
   user.pendingRefinementHint = refinementHint || null;
   await user.save();
 
   await ctx.reply(
-    '📎 Do you want to attach any media to this post? Send photos/videos now, or click *No Media* to skip.',
+    'Would you like to attach media to this post?',
     {
-      parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('⏭ No Media', 'media_skip'), Markup.button.callback('✅ Done Uploading', 'media_done')]
+        [Markup.button.callback('Add media', 'gen_choice:media'), Markup.button.callback('Continue without one', 'gen_choice:nomedia')]
       ])
     }
   );
 }
 
-async function processGeneration(ctx, user) {
+async function processGeneration(ctx, user, mediaChoice = 'nomedia') {
   const fileId = user.pendingVoiceFileId;
   if (!fileId) return ctx.reply('⚠️ Could not find your voice note. Please send it again.');
 
   const refinementHint = user.pendingRefinementHint || null;
-  // Use pinnedExampleText only for the genuine pinned layout reference
-  const layoutExample  = user.pinnedExampleText || null;
+  // Dynamically fetch pinned example text
+  let layoutExample = null;
+  try {
+    const chat = await ctx.telegram.getChat(ctx.chat.id);
+    if (chat.pinned_message?.text) {
+      layoutExample = chat.pinned_message.text;
+    }
+  } catch (err) {
+    console.error('[voice] Could not fetch chat data for pinned message:', err.message);
+  }
 
   const thinkingMsg = await ctx.reply(
     refinementHint
@@ -97,7 +104,6 @@ async function processGeneration(ctx, user) {
       layoutExample,
     }, refinementHint);
 
-    // Persist the generated posts, reset transient state
     user.currentPosts          = postStrings;
     user.inputState            = 'idle';
     user.pendingVoiceFileId    = null;
@@ -105,7 +111,7 @@ async function processGeneration(ctx, user) {
     await user.save();
 
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
-    await sendCarouselPost(ctx, postStrings, 0);
+    await sendCarouselPost(ctx, postStrings, 0, mediaChoice);
 
   } catch (err) {
     console.error('[voice] Pipeline error:', err.message);
@@ -124,7 +130,7 @@ async function processGeneration(ctx, user) {
  * When called from a callback (navigation), it edits the existing message.
  * When called fresh, it sends a new message.
  */
-async function sendCarouselPost(ctx, posts, currentIndex) {
+async function sendCarouselPost(ctx, posts, currentIndex, mediaChoice = 'nomedia') {
   if (!posts || posts.length === 0) return;
   const postText = posts[currentIndex];
 
@@ -133,8 +139,14 @@ async function sendCarouselPost(ctx, posts, currentIndex) {
   if (currentIndex > 0) {
     row.push(Markup.button.callback('⬅️ Prev', `carousel_prev:${currentIndex - 1}`));
   }
-  row.push(Markup.button.callback('✏️ Modify This',     `carousel_mod:${currentIndex}`));
-  row.push(Markup.button.callback('✅ Post to LinkedIn', `carousel_post:${currentIndex}`));
+  row.push(Markup.button.callback('✏️ Modify This', `carousel_mod:${currentIndex}`));
+  
+  if (mediaChoice === 'media') {
+    row.push(Markup.button.callback('✅ Choose this', `carousel_choose_media:${currentIndex}`));
+  } else {
+    row.push(Markup.button.callback('✅ Post to LinkedIn', `carousel_post:${currentIndex}`));
+  }
+
   if (currentIndex < posts.length - 1) {
     row.push(Markup.button.callback('Next ➡️', `carousel_next:${currentIndex + 1}`));
   }
