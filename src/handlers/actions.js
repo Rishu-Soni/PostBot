@@ -10,10 +10,11 @@ const REVISION_MARKER = 'Reply to this message with your instructions to modify 
 
 /**
  * Handles the inline buttons [📸 Add Media] and [⏩ No Media, Continue].
- * Saves the user's choice to DB (so every subsequent carousel render stays consistent),
- * then kicks off Gemini generation.
+ * Saves the user's choice to DB so every subsequent carousel render stays consistent,
+ * then immediately kicks off Gemini generation.
  *
- * This is the ONLY place pendingMediaChoice is written — once per voice-note session.
+ * Both paths generate posts right away — if the user chose 'media',
+ * they will be prompted to upload AFTER they select a specific post.
  */
 async function handleMediaChoice(ctx) {
   await ctx.answerCbQuery();
@@ -29,22 +30,10 @@ async function handleMediaChoice(ctx) {
   user.pendingMediaChoice = choice;
   await user.save();
 
-  if (choice === 'media') {
-    // Let the user know they can now start uploading before generation
-    await ctx.editMessageText(
-      '📸 *Send your photos or videos now.*\n\nWhen you\'re done, click the button below to generate and choose your post.',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('✅ Done — Generate Posts', 'media_uploads_done')],
-        ]),
-      }
-    ).catch(() => {});
-  } else {
-    // No media — go straight to generation
-    await ctx.editMessageText('✅ Got it. Generating your posts…').catch(() => {});
-    await processGeneration(ctx, user);
-  }
+  // Go straight to generation regardless of media choice.
+  // If 'media', the upload prompt will appear after the user selects a specific post.
+  await ctx.editMessageText('✅ Got it. Generating your posts…').catch(() => {});
+  await processGeneration(ctx, user);
 }
 
 /**
@@ -69,9 +58,7 @@ async function handleMediaUploadsDone(ctx) {
 
 /**
  * Handles Carousel [✅ Choose This] — the "media" variant of the post button.
- * Entered when user previously chose "Add Media" and now selects a post to pair with the media.
- * Transitions to awaiting media upload state if no media has been uploaded yet,
- * or immediately posts if media is already collected.
+ * User has selected which post they want, now we ask them to upload media.
  */
 async function handleCarouselChooseMedia(ctx) {
   await ctx.answerCbQuery();
@@ -83,29 +70,20 @@ async function handleCarouselChooseMedia(ctx) {
     return ctx.reply('⚠️ Could not find the post. Please try generating again.');
   }
 
-  if (user.pendingMediaIds.length > 0) {
-    // Media already uploaded during the pre-generation phase — post immediately
-    user.selectedPostIndex = index;
-    user.inputState        = 'idle';
-    await user.save();
+  // Lock in the selected post and open the media upload window
+  user.inputState         = 'awaiting_media_upload';
+  user.selectedPostIndex  = index;
+  user.pendingMediaIds    = [];
+  user.mediaDoneMessageId = null;
+  await user.save();
 
-    const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn with your media, please wait…');
-    await executeLinkedInPublish(ctx, user, user.currentPosts[index], thinkingMsg);
-  } else {
-    // No media yet — ask user to upload now
-    user.inputState        = 'awaiting_media_upload';
-    user.selectedPostIndex = index;
-    user.mediaDoneMessageId = null;
-    await user.save();
-
-    await ctx.reply(
-      '📸 Please upload your photos or videos now.\n\nSend all your media, then click *Done and Post*.',
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and Post', 'media_done_post')]]),
-      }
-    );
-  }
+  await ctx.reply(
+    '📸 *Upload your photos or videos now.*\n\nSend all your media files, then click *Done and Post* when ready.',
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and Post', 'media_done_post')]]),
+    }
+  );
 }
 
 /**
@@ -258,7 +236,6 @@ async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
 module.exports = {
   handlePostAction,
   handleMediaChoice,
-  handleMediaUploadsDone,
   handleMediaDonePost,
   handleCarouselChooseMedia,
   handleCarouselNav,

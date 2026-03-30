@@ -25,7 +25,7 @@ const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick,
   handleUseDefault
 } = require('./src/handlers/onboarding');
 const { handleVoice } = require('./src/handlers/voice');
-const { handlePostAction, handleMediaChoice, handleMediaUploadsDone, handleMediaDonePost,
+const { handlePostAction, handleMediaChoice, handleMediaDonePost,
   handleCarouselNav, handleCarouselMod, handleCarouselChooseMedia } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
@@ -246,9 +246,8 @@ bot.action('gen_saved',       async (ctx) => { await connectDB(); return promptG
 bot.action('gen_new',         async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
 
 // Media choice after voice note
-bot.action(/^gen_choice:(.+)$/,         async (ctx) => { await connectDB(); return handleMediaChoice(ctx); });
-bot.action('media_uploads_done',         async (ctx) => { await connectDB(); return handleMediaUploadsDone(ctx); });
-bot.action('media_done_post',            async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
+bot.action(/^gen_choice:(.+)$/,  async (ctx) => { await connectDB(); return handleMediaChoice(ctx); });
+bot.action('media_done_post',    async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
 
 // Carousel navigation & actions
 bot.action(/^carousel_prev:(\d+)$/,          async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
@@ -265,16 +264,8 @@ bot.on(['photo', 'video'], async (ctx) => {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  // Accept media in two states:
-  // 1. awaiting_media_upload → user chose a post and is uploading media to attach before posting
-  // 2. idle + pendingMediaChoice === 'media' + no pendingVoiceFileId
-  //    → user is uploading media BEFORE generation (pre-generation upload window)
-  const isPostPhaseUpload  = user?.inputState === 'awaiting_media_upload';
-  const isPreGenUpload     = user?.inputState === 'idle' &&
-                             user?.pendingMediaChoice === 'media' &&
-                             !user?.pendingVoiceFileId; // generation already happened
-
-  if (user && (isPostPhaseUpload || isPreGenUpload)) {
+  // Only accept media after the user has clicked "✅ Choose This" on a carousel post
+  if (user && user.inputState === 'awaiting_media_upload') {
     let fileId;
     if (ctx.message.photo) {
       fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -283,21 +274,18 @@ bot.on(['photo', 'video'], async (ctx) => {
     }
 
     if (fileId) {
-      // Clean up the previous "Done" prompt message to keep the chat tidy
+      // Remove the previous "Done" prompt so the chat stays clean
       if (user.mediaDoneMessageId) {
         await ctx.telegram.deleteMessage(ctx.chat.id, user.mediaDoneMessageId).catch(() => {});
       }
 
       user.pendingMediaIds.push(fileId);
 
-      const buttonLabel = isPostPhaseUpload ? '✅ Done and Post' : '✅ Done — Generate Posts';
-      const buttonData  = isPostPhaseUpload ? 'media_done_post'  : 'media_uploads_done';
-
       const doneMsg = await ctx.reply(
-        `✅ Media attached (${user.pendingMediaIds.length} total). Send another, or click Done.`,
+        `✅ Media attached (${user.pendingMediaIds.length} total). Send another, or click Done to post.`,
         {
           reply_to_message_id: ctx.message.message_id,
-          ...Markup.inlineKeyboard([[Markup.button.callback(buttonLabel, buttonData)]]),
+          ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and Post', 'media_done_post')]]),
         }
       );
 
@@ -307,8 +295,8 @@ bot.on(['photo', 'video'], async (ctx) => {
     }
   }
 
-  // Not in a media-upload state — guide the user
-  return ctx.reply('🎙 Please send a voice note first via /generate, then attach your media when prompted.');
+  // Not in the media upload phase — guide the user
+  return ctx.reply('🎙 Please generate a post and select one first before sending media.');
 });
 
 bot.catch((err, ctx) => {
