@@ -20,11 +20,13 @@ const WEBHOOK_PATH = '/webhook/telegram';
 const WEBHOOK_URL = `${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET_TOKEN;
 
-const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick, 
-  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt 
+const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick,
+  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt,
+  handleUseDefault
 } = require('./src/handlers/onboarding');
 const { handleVoice } = require('./src/handlers/voice');
-const { handlePostAction, handleMediaComplete, handleCarouselNav, handleCarouselMod } = require('./src/handlers/actions');
+const { handlePostAction, handleMediaChoice, handleMediaUploadsDone, handleMediaDonePost,
+  handleCarouselNav, handleCarouselMod, handleCarouselChooseMedia } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
 const User = require('./src/models/User');
@@ -200,8 +202,13 @@ bot.command('delData', async (ctx) => {
           preferredStyles: [], preferredLayout: 'Short Para', preferredTone: 'Professional',
           onboardingComplete: false, linkedinAccessToken: null, linkedinRefreshToken: null,
           linkedinTokenExpiry: null, delDataAt: new Date(),
-          inputState: 'idle', pendingVoiceFileId: null, pendingMediaIds: [], currentPosts: [],
-          selectedPostIndex: null, mediaDoneMessageId: null, pendingRefinementHint: null,
+          // Reset ALL transient session state
+          inputState: 'idle', pendingVoiceFileId: null,
+          pendingMediaChoice: 'nomedia', pendingMediaIds: [],
+          currentPosts: [], selectedPostIndex: null,
+          mediaDoneMessageId: null, pendingRefinementHint: null,
+          // Mark as new user again so /generate shows the fresh-user prompt
+          isNewUser: true,
         },
         $inc: { countDelData: 1 },
       }
@@ -226,22 +233,29 @@ bot.command('delData', async (ctx) => {
 
 // ── Bot Actions ───────────────────────────────────────────────────────────────
 
-bot.action('change_prefs', async (ctx) => { await connectDB(); return handleChangePrefs(ctx); });
+bot.action('change_prefs',   async (ctx) => { await connectDB(); return handleChangePrefs(ctx); });
 bot.action(/^ob_flow:(.+)$/, async (ctx) => { await connectDB(); return handleFlowPick(ctx); });
-bot.action(/^ob_style:(.+)$/, async (ctx) => { await connectDB(); return handleStylePick(ctx); });
+bot.action(/^ob_style:(.+)$/,  async (ctx) => { await connectDB(); return handleStylePick(ctx); });
 bot.action(/^ob_layout:(.+)$/, async (ctx) => { await connectDB(); return handleLayoutPick(ctx); });
-bot.action(/^ob_tone:(.+)$/, async (ctx) => { await connectDB(); return handleTonePick(ctx); });
-bot.action(/^ob_back:(.+)$/, async (ctx) => { await connectDB(); return handleBack(ctx); });
+bot.action(/^ob_tone:(.+)$/,   async (ctx) => { await connectDB(); return handleTonePick(ctx); });
+bot.action(/^ob_back:(.+)$/,   async (ctx) => { await connectDB(); return handleBack(ctx); });
 
-bot.action(/^carousel_prev:(\d+)$/, async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
-bot.action(/^carousel_next:(\d+)$/, async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
-bot.action(/^carousel_mod:(\d+)$/, async (ctx) => { await connectDB(); return handleCarouselMod(ctx); });
-bot.action(/^carousel_post:(\d+)$/, async (ctx) => { await connectDB(); return handlePostAction(ctx); });
-bot.action(/^gen_choice:(.+)$/, async (ctx) => { await connectDB(); const { handleMediaChoice } = require('./src/handlers/actions'); return handleMediaChoice(ctx); });
-bot.action(/^carousel_choose_media:(\d+)$/, async (ctx) => { await connectDB(); const { handleCarouselChooseMedia } = require('./src/handlers/actions'); return handleCarouselChooseMedia(ctx); });
-bot.action('media_done_post', async (ctx) => { await connectDB(); const { handleMediaDonePost } = require('./src/handlers/actions'); return handleMediaDonePost(ctx); });
-bot.action('gen_saved', async (ctx) => { await connectDB(); const { promptGenerate } = require('./src/handlers/onboarding'); return promptGenerate(ctx); });
-bot.action('gen_new', async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
+// /generate flow
+bot.action('gen_use_default', async (ctx) => { await connectDB(); return handleUseDefault(ctx); });
+bot.action('gen_saved',       async (ctx) => { await connectDB(); return promptGenerate(ctx); });
+bot.action('gen_new',         async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
+
+// Media choice after voice note
+bot.action(/^gen_choice:(.+)$/,         async (ctx) => { await connectDB(); return handleMediaChoice(ctx); });
+bot.action('media_uploads_done',         async (ctx) => { await connectDB(); return handleMediaUploadsDone(ctx); });
+bot.action('media_done_post',            async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
+
+// Carousel navigation & actions
+bot.action(/^carousel_prev:(\d+)$/,          async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
+bot.action(/^carousel_next:(\d+)$/,          async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
+bot.action(/^carousel_mod:(\d+)$/,           async (ctx) => { await connectDB(); return handleCarouselMod(ctx); });
+bot.action(/^carousel_post:(\d+)$/,          async (ctx) => { await connectDB(); return handlePostAction(ctx); });
+bot.action(/^carousel_choose_media:(\d+)$/,  async (ctx) => { await connectDB(); return handleCarouselChooseMedia(ctx); });
 
 bot.on('voice', async (ctx) => { await connectDB(); return handleVoice(ctx); });
 bot.on('text', async (ctx) => { await connectDB(); return handleText(ctx); });
@@ -251,26 +265,41 @@ bot.on(['photo', 'video'], async (ctx) => {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  if (user && user.inputState === 'awaiting_media_upload') {
+  // Accept media in two states:
+  // 1. awaiting_media_upload → user chose a post and is uploading media to attach before posting
+  // 2. idle + pendingMediaChoice === 'media' + no pendingVoiceFileId
+  //    → user is uploading media BEFORE generation (pre-generation upload window)
+  const isPostPhaseUpload  = user?.inputState === 'awaiting_media_upload';
+  const isPreGenUpload     = user?.inputState === 'idle' &&
+                             user?.pendingMediaChoice === 'media' &&
+                             !user?.pendingVoiceFileId; // generation already happened
+
+  if (user && (isPostPhaseUpload || isPreGenUpload)) {
     let fileId;
     if (ctx.message.photo) {
       fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     } else if (ctx.message.video) {
       fileId = ctx.message.video.file_id;
     }
-    
+
     if (fileId) {
-      // Clean UI: delete old mediaDone message to prevent scrolling
+      // Clean up the previous "Done" prompt message to keep the chat tidy
       if (user.mediaDoneMessageId) {
         await ctx.telegram.deleteMessage(ctx.chat.id, user.mediaDoneMessageId).catch(() => {});
       }
 
       user.pendingMediaIds.push(fileId);
-      
-      const doneMsg = await ctx.reply('✅ Media attached! Send another, or click Done to publish.', {
-        reply_to_message_id: ctx.message.message_id,
-        ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and post', 'media_done_post')]])
-      });
+
+      const buttonLabel = isPostPhaseUpload ? '✅ Done and Post' : '✅ Done — Generate Posts';
+      const buttonData  = isPostPhaseUpload ? 'media_done_post'  : 'media_uploads_done';
+
+      const doneMsg = await ctx.reply(
+        `✅ Media attached (${user.pendingMediaIds.length} total). Send another, or click Done.`,
+        {
+          reply_to_message_id: ctx.message.message_id,
+          ...Markup.inlineKeyboard([[Markup.button.callback(buttonLabel, buttonData)]]),
+        }
+      );
 
       user.mediaDoneMessageId = doneMsg.message_id;
       await user.save();
@@ -278,8 +307,8 @@ bot.on(['photo', 'video'], async (ctx) => {
     }
   }
 
-  // Not awaiting media
-  return ctx.reply('🎙 Please generate a post and choose it first before sending media, or use /generate.');
+  // Not in a media-upload state — guide the user
+  return ctx.reply('🎙 Please send a voice note first via /generate, then attach your media when prompted.');
 });
 
 bot.catch((err, ctx) => {

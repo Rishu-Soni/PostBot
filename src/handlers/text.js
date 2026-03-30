@@ -29,11 +29,12 @@ async function handleText(ctx) {
 
       const prefs = await extractPreferences(text);
 
-      user.preferredTone     = prefs.preferredTone    || 'Professional';
+      user.preferredTone      = prefs.preferredTone    || 'Professional';
       user.preferredStyles   = prefs.preferredStyles?.length ? prefs.preferredStyles : ['Punchy & Direct'];
-      user.preferredLayout   = 'Short Para'; // Default structural layout label; layout driven by dynamically pinned message
+      user.preferredLayout   = 'Short Para'; // Default label; actual layout driven by the pinned message dynamically
       user.inputState        = 'idle';
       user.onboardingComplete = true;
+      user.isNewUser          = false; // Completed setup via Analyze Example
       await user.save();
 
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
@@ -85,8 +86,9 @@ async function handleRevise(ctx, postText, instructions, user) {
     }
 
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
-    // Display revised posts in the same Carousel UI
-    await sendCarouselPost(ctx, newStrings, 0);
+    // Display revised posts in the same Carousel UI, preserving the user's media choice
+    const mediaChoice = user?.pendingMediaChoice || 'nomedia';
+    await sendCarouselPost(ctx, newStrings, 0, mediaChoice);
   } catch (err) {
     console.error('[text] handleRevise:', err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});

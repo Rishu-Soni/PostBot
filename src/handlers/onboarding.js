@@ -36,6 +36,8 @@ const LAYOUT_DESCRIPTIONS = `
 • *Daily Progress:* 1-line title, 2-line summary, accomplishments, issues faced, key learnings, ending with a question.
 `;
 
+// Builds a 2-column inline keyboard from an options array.
+// Optionally appends a [🔙 Back] button row if backPrefix is given.
 function buildKeyboard(options, prefix, backPrefix = null) {
   const rows = [];
   for (let i = 0; i < options.length; i += 2) {
@@ -47,6 +49,8 @@ function buildKeyboard(options, prefix, backPrefix = null) {
   return Markup.inlineKeyboard(rows);
 }
 
+// Edits the current message if inside a callback, otherwise sends a fresh reply.
+// Silently swallows "message is not modified" errors.
 async function safeEdit(ctx, text, extra) {
   try {
     if (ctx.callbackQuery) {
@@ -57,14 +61,15 @@ async function safeEdit(ctx, text, extra) {
   } catch (err) {
     if (!err.message?.includes('message is not modified')) {
       if (!ctx.callbackQuery) throw err;
-      // Fallback
+      // Fallback for callback contexts where editing fails for other reasons
       await ctx.reply(text, extra);
     }
   }
 }
 
 /**
- * Ensures user is onboarded, then prompts for voice.
+ * Prompts the user to send a voice note.
+ * Called after onboarding or when the user is ready to generate.
  */
 async function promptGenerate(ctx) {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
@@ -75,30 +80,54 @@ async function promptGenerate(ctx) {
 }
 
 /**
- * Handle new /generate flow interceptor
+ * /generate command handler.
+ *
+ * Logic:
+ *  - New user (isNewUser === true, no preferences set):
+ *    → Offer "Continue with defaults" or "Set up preferences".
+ *  - Returning user (isNewUser === false, has preferences):
+ *    → Offer "Continue with previous data" or "Set up new preferences".
+ *  - If user doesn't exist in DB at all, create them and treat as new.
  */
 async function handleGenerateFlow(ctx) {
+  const telegramId = String(ctx.from.id);
+  const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
+
   try {
-    const telegramId = String(ctx.from.id);
-    const user = await User.findOne({ telegramId });
-    
-    const chat = await ctx.telegram.getChat(ctx.chat.id);
-    const pinnedMessage = chat.pinned_message?.text;
-    const hasDbPreferences = user?.onboardingComplete && user.preferredStyles?.length > 0;
-
-    if (!pinnedMessage && !hasDbPreferences) {
-      await ctx.reply('⚙️ Let\'s set up your preferred post style first.');
-      return startSetupPrompt(ctx);
-    }
-
-    await ctx.reply(
-      'Do you want to continue with your saved style/layout, or set up a new one?',
-      {
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('Continue with saved data', 'gen_saved'), Markup.button.callback('Set up new one', 'gen_new')]
-        ])
-      }
+    // Upsert: create account if this is the very first time they call /generate
+    let user = await User.findOneAndUpdate(
+      { telegramId },
+      { $setOnInsert: { telegramId, firstName, isNewUser: true } },
+      { upsert: true, new: true }
     );
+
+    if (user.isNewUser) {
+      // ── New user: no saved preferences yet ────────────────────────────────
+      await ctx.reply(
+        `👋 Hi *${firstName}!* It looks like you haven't configured your post style yet.\n\n` +
+        `You can jump straight in with the *default settings*, or take a minute to *set up your own style* for more personalised posts.`,
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('⚡ Use Default Settings', 'gen_use_default')],
+            [Markup.button.callback('🛠 Set Up My Style',     'gen_new'         )],
+          ]),
+        }
+      );
+    } else {
+      // ── Returning user: previously configured preferences exist ───────────
+      await ctx.reply(
+        `Welcome back, *${firstName}!* 🎙\n\n` +
+        `Would you like to generate a post with your *previously saved preferences*, or would you prefer to *set up new ones*?`,
+        {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Use Previous Preferences', 'gen_saved')],
+            [Markup.button.callback('🔄 Set Up New Preferences',   'gen_new'  )],
+          ]),
+        }
+      );
+    }
   } catch (err) {
     console.error('[onboarding] handleGenerateFlow:', err);
     await ctx.reply('😔 Something went wrong checking your preferences. Please try again.');
@@ -106,12 +135,46 @@ async function handleGenerateFlow(ctx) {
 }
 
 /**
+ * Handles [Use Default Settings] in /generate for new users.
+ * Marks them as no longer new (they're using the defaults now), then prompts for a voice note.
+ */
+async function handleUseDefault(ctx) {
+  await ctx.answerCbQuery();
+  const telegramId = String(ctx.from.id);
+  try {
+    await User.findOneAndUpdate(
+      { telegramId },
+      {
+        $set: {
+          onboardingComplete: true,
+          isNewUser: false,
+          // Apply default values explicitly in case they differ from schema defaults
+          preferredStyles: ['Conversational', 'Storytelling', 'Punchy & Direct'],
+          preferredLayout: 'Short Para',
+          preferredTone:   'Casual',
+        },
+      }
+    );
+    await ctx.editMessageText(
+      '✅ *Default settings applied!*\n\n' +
+      '• Layout: Short Para\n• Style: Conversational, Storytelling, Punchy & Direct\n• Tone: Casual',
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    await promptGenerate(ctx);
+  } catch (err) {
+    console.error('[onboarding] handleUseDefault:', err);
+    await ctx.reply('😔 Something went wrong. Please try again.');
+  }
+}
+
+/**
  * Master entry point for /start and /setStyle.
+ * Resets onboarding state and presents the Manual vs Analyze choice.
  */
 async function startSetupPrompt(ctx) {
-  const firstName = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
+  const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
   const telegramId = String(ctx.from.id);
-  
+
   await User.findOneAndUpdate(
     { telegramId },
     { $set: { onboardingComplete: false, inputState: 'idle' } },
@@ -119,34 +182,61 @@ async function startSetupPrompt(ctx) {
   );
 
   await ctx.reply(
-    `⚙️ *Let's set your post preferences, ${firstName}!*\n\nWould you like to manually choose your style, or should I analyze a past LinkedIn post to learn your style automatically?`,
+    `⚙️ *Let's set your post preferences, ${firstName}!*\n\n` +
+    `Would you like to manually choose your style, or should I analyse a past LinkedIn post to learn your style automatically?`,
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🛠 Manual Setup', 'ob_flow:manual')],
-        [Markup.button.callback('🔍 Analyze Example', 'ob_flow:analyze')]
-      ])
+        [Markup.button.callback('🛠 Manual Setup',    'ob_flow:manual' )],
+        [Markup.button.callback('🔍 Analyze Example', 'ob_flow:analyze')],
+      ]),
     }
   );
 }
 
+/**
+ * /start handler.
+ *
+ * - First visit  → isNewUser = true  → show intro + send to handleGenerateFlow
+ * - Return visit → isNewUser = false → greet + suggest /generate or /help
+ */
 async function handleStart(ctx) {
   if (!ctx.from) return;
   const telegramId = String(ctx.from.id);
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
 
   try {
+    // Check whether this user already has a document in the DB
     let user = await User.findOne({ telegramId });
-    const isNewUser = !user;
-    
-    if (isNewUser) {
-      user = await User.create({ telegramId, firstName });
+    const isFirstEver = !user;
+
+    if (isFirstEver) {
+      // Brand new user — create their document with isNewUser: true
+      user = await User.create({ telegramId, firstName, isNewUser: true });
+    } else {
+      // Returning user — ensure isNewUser is false (they've been here before)
+      if (user.isNewUser) {
+        // Edge case: they started but never completed setup; still treat as "returning"
+        // for the /start welcome, but keep isNewUser true until they finish setup.
+      }
     }
 
-    const introText = 'What I can do:\n✨ The Postbot Flow: Complete a quick one-time setup > speak your mind into a voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n🎛️ Commands:\n/start - Kick off smart onboarding to extract your unique writing style.\n/generate - Record a voice note and let me generate your next post.\n/setStyle - Manually customize your preferred layouts, tone, and formatting.\n/connect - Securely link your LinkedIn account for instant publishing.\n/settings - View your current configuration and brand guidelines.\n/delData - Erase your preferences, credentials, and transient data for complete privacy.\n/help - Display this quick guide to all available commands.';
+    const introText =
+      `What I can do:\n` +
+      `✨ The Postbot Flow: Complete a quick one-time setup > speak your mind into a voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n` +
+      `🎛️ Commands:\n` +
+      `/start - Kick off smart onboarding to extract your unique writing style.\n` +
+      `/generate - Record a voice note and let me generate your next post.\n` +
+      `/setStyle - Manually customize your preferred layouts, tone, and formatting.\n` +
+      `/connect - Securely link your LinkedIn account for instant publishing.\n` +
+      `/settings - View your current configuration and brand guidelines.\n` +
+      `/delData - Erase your preferences, credentials, and transient data for complete privacy.\n` +
+      `/help - Display this quick guide to all available commands.`;
+
     await ctx.reply(introText);
 
-    if (isNewUser) {
+    if (isFirstEver) {
+      // First ever visit — walk them straight into the generate flow
       return handleGenerateFlow(ctx);
     } else {
       await ctx.reply('Would you like to view /help or start a new post with /generate?');
@@ -167,24 +257,24 @@ async function handleChangePrefs(ctx) {
   }
 }
 
+// Handles [Manual Setup] or [Analyze Example] choice
 async function handleFlowPick(ctx) {
   await ctx.answerCbQuery();
-  const flow = ctx.match[1];
+  const flow       = ctx.match[1];
   const telegramId = String(ctx.from.id);
-  
+
   if (flow === 'manual') {
-    // Start Layout Setup
     await startLayoutStep(ctx);
   } else if (flow === 'analyze') {
     await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_example' } });
     await safeEdit(ctx,
-      `🔍 *Analyze Example*\n\nPlease paste an example of a LinkedIn post you've written recently, and I will extract your preferred Tone and Style.\n\n(Send the plain text message now, or click /start to cancel.)`,
+      `🔍 *Analyze Example*\n\nPlease paste an example of a LinkedIn post you've written recently, and I will extract your preferred Tone and Style.\n\n_(Send the plain text message now, or send /start to cancel.)_`,
       { parse_mode: 'Markdown' }
     );
   }
 }
 
-// === MANUAL FLOW STEPS ===
+// ── Manual Setup Steps ────────────────────────────────────────────────────────
 
 async function startLayoutStep(ctx) {
   await safeEdit(ctx,
@@ -200,6 +290,7 @@ async function startStyleStep(ctx) {
   );
 }
 
+// [🔙 Back] handler — steps back one question without data loss
 async function handleBack(ctx) {
   await ctx.answerCbQuery();
   const step = ctx.match[1];
@@ -251,7 +342,15 @@ async function handleTonePick(ctx) {
   try {
     const user = await User.findOneAndUpdate(
       { telegramId },
-      { $set: { preferredTone: tone, onboardingComplete: true, inputState: 'idle', pinnedExampleText: null } },
+      {
+        $set: {
+          preferredTone:      tone,
+          onboardingComplete: true,
+          // Mark as returning user — they've now completed at least one setup
+          isNewUser:          false,
+          inputState:         'idle',
+        },
+      },
       { new: true }
     );
     if (!user) return ctx.reply('⚠️ Account not found. Send /start.');
@@ -268,7 +367,16 @@ async function handleTonePick(ctx) {
   }
 }
 
-module.exports = { 
-  handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick, 
-  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt, handleGenerateFlow 
+module.exports = {
+  handleStart,
+  handleChangePrefs,
+  handleFlowPick,
+  handleLayoutPick,
+  handleStylePick,
+  handleTonePick,
+  handleBack,
+  handleUseDefault,
+  promptGenerate,
+  startSetupPrompt,
+  handleGenerateFlow,
 };
