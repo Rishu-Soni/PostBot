@@ -25,7 +25,7 @@ const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick,
   handleUseDefault
 } = require('./src/handlers/onboarding');
 const { handleVoice } = require('./src/handlers/voice');
-const { handlePostAction, handleMediaChoice, handleMediaDonePost,
+const { handlePostAction, handleMediaDonePost,
   handleCarouselNav, handleCarouselMod, handleCarouselChooseMedia } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
@@ -35,11 +35,9 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
 
 // DB connection caching (serverless-friendly)
-let dbReady = false;
 async function connectDB() {
-  if (dbReady || mongoose.connection.readyState >= 1) return;
+  if (mongoose.connection.readyState === 1) return;
   await mongoose.connect(process.env.MONGODB_URI, { bufferCommands: false });
-  dbReady = true;
   console.log('[DB] Connected to MongoDB');
 }
 
@@ -203,10 +201,9 @@ bot.command('delData', async (ctx) => {
           onboardingComplete: false, linkedinAccessToken: null, linkedinRefreshToken: null,
           linkedinTokenExpiry: null, delDataAt: new Date(),
           // Reset ALL transient session state
-          inputState: 'idle', pendingVoiceFileId: null,
-          pendingMediaChoice: 'nomedia', pendingMediaIds: [],
+          inputState: 'idle', pendingMediaIds: [],
           currentPosts: [], selectedPostIndex: null,
-          mediaDoneMessageId: null, pendingRefinementHint: null,
+          mediaDoneMessageId: null,
           // Mark as new user again so /generate shows the fresh-user prompt
           isNewUser: true,
         },
@@ -245,8 +242,7 @@ bot.action('gen_use_default', async (ctx) => { await connectDB(); return handleU
 bot.action('gen_saved',       async (ctx) => { await connectDB(); return promptGenerate(ctx); });
 bot.action('gen_new',         async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
 
-// Media choice after voice note
-bot.action(/^gen_choice:(.+)$/,  async (ctx) => { await connectDB(); return handleMediaChoice(ctx); });
+// Media mapping
 bot.action('media_done_post',    async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
 
 // Carousel navigation & actions

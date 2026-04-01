@@ -20,16 +20,10 @@ const UserSchema = new mongoose.Schema(
 
     // Transient generation session
     inputState: { type: String, default: 'idle' },
-    pendingVoiceFileId: { type: String, default: null },
-    // Stores the user's media choice ('media' | 'nomedia') for the current generation session.
-    // Set once when the user answers the media prompt; reused for all carousel renders
-    // (including after modifications) so the correct button variant is always shown.
-    pendingMediaChoice: { type: String, enum: ['media', 'nomedia'], default: 'nomedia' },
     pendingMediaIds: { type: [String], default: [] },
     currentPosts: { type: [String], default: [] },
     selectedPostIndex: { type: Number, default: null },
     mediaDoneMessageId: { type: Number, default: null },
-    pendingRefinementHint: { type: String, default: null },
 
     // LinkedIn OAuth
     linkedinAccessToken: { type: String, default: null },

@@ -17,16 +17,14 @@ async function callGemini(payload) {
 }
 
 async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample }, refinementHint = null) {
-  const systemInstruction =
-    `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
-
-CORE PARAMETERS:
-- WRITING STYLES: Create one post for each of these styles: ${styles.join(', ')}.
-- LAYOUT & STRUCTURE: ${layoutExample ? `Strictly mirror the structural layout of this example post:\n"${layoutExample}"\n(Ignore the content, just mimic the paragraph breaks, sentence length, and structural flow).` : `Strictly follow this layout: ${layout}.`}
-- TONE: Maintain a ${tone} tone throughout all posts.
-- LANGUAGE: Strictly English.
-
-VIRAL POST ARCHITECTURE & QUALITY RULES:
+  const architectureRules = layoutExample
+    ? `VIRAL POST ARCHITECTURE & QUALITY RULES:
+1. STRICT LAYOUT MATCHING (CRITICAL):
+   - You MUST exactly mirror the layout, paragraph breaks, and sentence lengths of the example post provided.
+   - Do NOT force a typical "Hook-Body-Conclusion" structure if it conflicts with the example.
+2. BAN LIST: Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament"). Sound human.
+3. HASHTAGS: Match the hashtag usage pattern (amount/placement) of the example post.`
+    : `VIRAL POST ARCHITECTURE & QUALITY RULES:
 1. THE HOOK (First 2 Lines):
    - Line 1: A concise, direct, and punchy scroll-stopper (e.g., a bold claim, a surprising failure, or a contrarian thought).
    - Line 2: Create an "information gap" that sets the stakes and forces the reader to click "see more". No fluff.
@@ -38,7 +36,18 @@ VIRAL POST ARCHITECTURE & QUALITY RULES:
    - Conclude with a polarizing, thought-provoking question or a subtle call-to-action that sparks debate.
    - CRITICAL: Do NOT directly ask for comments. Ask a question so specific they feel compelled to answer.
 4. HASHTAGS:
-   - Append 5-8 highly relevant, high-traffic hashtags at the very bottom.
+   - Append 5-8 highly relevant, high-traffic hashtags at the very bottom.`;
+
+  const systemInstruction =
+    `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
+
+CORE PARAMETERS:
+- WRITING STYLES: Create one post for each of these styles: ${styles.join(', ')}.
+- LAYOUT & STRUCTURE: ${layoutExample ? `Strictly mirror the structural layout of this example post:\n"${layoutExample}"\n(Ignore the content, just mimic the paragraph breaks, sentence length, and structural flow).` : `Strictly follow this layout: ${layout}.`}
+- TONE: Maintain a ${tone} tone throughout all posts.
+- LANGUAGE: Strictly English.
+
+${architectureRules}
 
 FORMATTING STRICT RULES:
 - NO titles, NO headers, NO introductory text.
@@ -50,7 +59,11 @@ Example exact output format:
 
   const text = await callGemini({
     model: MODEL,
-    config: { systemInstruction, responseMimeType: 'application/json' },
+    config: { 
+      systemInstruction, 
+      responseMimeType: 'application/json',
+      responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+    },
     contents: [{
       role: 'user',
       parts: [
@@ -86,7 +99,11 @@ Example output format:
 
   const text = await callGemini({
     model: MODEL,
-    config: { systemInstruction, responseMimeType: 'application/json' },
+    config: { 
+      systemInstruction, 
+      responseMimeType: 'application/json',
+      responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+    },
     contents: [{ role: 'user', parts: [{ text: 'Apply the revision instructions and return 3 refined variation posts.' }] }],
   });
 
@@ -94,35 +111,16 @@ Example output format:
 }
 
 function parsePostsJson(rawText) {
-  let json = rawText;
-
-  const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenceMatch) json = fenceMatch[1].trim();
-
-  if (!json.startsWith('[')) {
-    const start = json.indexOf('['), end = json.lastIndexOf(']');
-    if (start !== -1 && end > start) json = json.slice(start, end + 1);
-  }
-
-  json = json.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, match =>
-    match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
-  );
-
-  let posts;
   try {
-    posts = JSON.parse(json);
-  } catch {
-    console.error('[Gemini] JSON parse failed. Raw:\n', rawText);
+    const posts = JSON.parse(rawText);
+    if (!Array.isArray(posts) || posts.length < 3) {
+      throw new Error(`Expected at least 3 posts, got ${Array.isArray(posts) ? posts.length : typeof posts}`);
+    }
+    return posts.slice(0, 3).map(p => (typeof p === 'string' ? p.trim() : JSON.stringify(p)));
+  } catch (err) {
+    console.error('[Gemini] JSON parse failed. Raw:\n', rawText, '\nError:', err.message);
     throw new Error('[Gemini] Could not parse response as JSON. Please try again.');
   }
-
-  if (!Array.isArray(posts)) throw new Error('[Gemini] Response is not a JSON array. Please try again.');
-
-  posts = posts.slice(0, 3).map(p => (typeof p === 'string' ? p.trim() : JSON.stringify(p)));
-
-  if (posts.length < 3) throw new Error(`[Gemini] Expected 3 posts but received ${posts.length}. Please try again.`);
-
-  return posts;
 }
 
 async function extractPreferences(exampleText) {

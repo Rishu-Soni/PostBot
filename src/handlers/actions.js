@@ -3,61 +3,13 @@
 const { Markup } = require('telegraf');
 const User = require('../models/User');
 const { postToLinkedIn, getValidAccessToken, buildAuthUrl } = require('../services/linkedin');
-const { processGeneration, sendCarouselPost } = require('./voice');
+const { sendCarouselPost } = require('./voice');
 
 const LINKEDIN_ENABLED = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'LINKEDIN_REDIRECT_URI'].every(k => process.env[k]);
 const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
 
 /**
- * Handles the inline buttons [📸 Add Media] and [⏩ No Media, Continue].
- * Saves the user's choice to DB so every subsequent carousel render stays consistent,
- * then immediately kicks off Gemini generation.
- *
- * Both paths generate posts right away — if the user chose 'media',
- * they will be prompted to upload AFTER they select a specific post.
- */
-async function handleMediaChoice(ctx) {
-  await ctx.answerCbQuery();
-  const choice     = ctx.match[1]; // 'media' | 'nomedia'
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
-
-  if (!user || !user.pendingVoiceFileId) {
-    return ctx.reply('⚠️ Could not find your pending voice note. Please send it again.');
-  }
-
-  // Persist the choice so all carousel renders (including post-revision) stay in sync
-  user.pendingMediaChoice = choice;
-  await user.save();
-
-  // Go straight to generation regardless of media choice.
-  // If 'media', the upload prompt will appear after the user selects a specific post.
-  await ctx.editMessageText('✅ Got it. Generating your posts…').catch(() => {});
-  await processGeneration(ctx, user);
-}
-
-/**
- * Handles [✅ Done — Generate Posts] after user has uploaded media.
- * Triggers Gemini generation with whatever media has been collected so far.
- */
-async function handleMediaUploadsDone(ctx) {
-  await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
-
-  if (!user || !user.pendingVoiceFileId) {
-    return ctx.reply('⚠️ Session expired. Please send your voice note again.');
-  }
-
-  await ctx.editMessageText(
-    `✅ Got it! ${user.pendingMediaIds.length} media file(s) attached. Generating your posts…`
-  ).catch(() => {});
-
-  await processGeneration(ctx, user);
-}
-
-/**
- * Handles Carousel [✅ Choose This] — the "media" variant of the post button.
+ * Handles Carousel [✅ Choose This] / [📸 Attach Media & Post].
  * User has selected which post they want, now we ask them to upload media.
  */
 async function handleCarouselChooseMedia(ctx) {
@@ -88,7 +40,6 @@ async function handleCarouselChooseMedia(ctx) {
 
 /**
  * Handles Carousel [⬅️ Prev] and [Next ➡️] navigation.
- * Reads pendingMediaChoice from DB to keep button variant consistent.
  */
 async function handleCarouselNav(ctx) {
   const index      = parseInt(ctx.match[1], 10);
@@ -100,15 +51,12 @@ async function handleCarouselNav(ctx) {
   }
 
   await ctx.answerCbQuery();
-  // Use the persisted media choice so the correct button variant is always rendered
-  await sendCarouselPost(ctx, user.currentPosts, index, user.pendingMediaChoice);
+  await sendCarouselPost(ctx, user.currentPosts, index);
 }
 
 /**
  * Handles Carousel [✏️ Modify This].
- * Resets inputState to 'idle' so any stale 'awaiting_media_upload' state is cleared —
- * the user's media choice (pendingMediaChoice) is preserved so modified posts
- * still show the correct action button.
+ * Resets inputState to 'idle' so any stale 'awaiting_media_upload' state is cleared.
  */
 async function handleCarouselMod(ctx) {
   await ctx.answerCbQuery();
@@ -120,7 +68,6 @@ async function handleCarouselMod(ctx) {
     return ctx.reply('⚠️ Could not find the post to revise. Please generate a new one.');
   }
 
-  // Clear media-upload limbo — pendingMediaChoice stays intact
   if (user.inputState === 'awaiting_media_upload') {
     user.inputState        = 'idle';
     user.selectedPostIndex = null;
@@ -136,7 +83,7 @@ async function handleCarouselMod(ctx) {
 }
 
 /**
- * Handles Carousel [✅ Post to LinkedIn] — the no-media path.
+ * Handles Carousel [✅ Post Directly] — the no-media path.
  */
 async function handlePostAction(ctx) {
   const index      = parseInt(ctx.match[1], 10);
@@ -215,7 +162,6 @@ async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
     user.inputState         = 'idle';
     user.selectedPostIndex  = null;
     user.mediaDoneMessageId = null;
-    user.pendingMediaChoice = 'nomedia';
     await user.save();
 
     await ctx.reply(
@@ -235,7 +181,6 @@ async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
 
 module.exports = {
   handlePostAction,
-  handleMediaChoice,
   handleMediaDonePost,
   handleCarouselChooseMedia,
   handleCarouselNav,
