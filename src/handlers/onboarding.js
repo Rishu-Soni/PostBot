@@ -83,9 +83,9 @@ async function promptGenerate(ctx) {
  * /generate command handler.
  *
  * Logic:
- *  - New user (isNewUser === true, no preferences set):
+ *  - New user (!onboardingComplete): no preferences set yet.
  *    → Offer "Continue with defaults" or "Set up preferences".
- *  - Returning user (isNewUser === false, has preferences):
+ *  - Returning user (onboardingComplete === true): has existing preferences.
  *    → Offer "Continue with previous data" or "Set up new preferences".
  *  - If user doesn't exist in DB at all, create them and treat as new.
  */
@@ -97,11 +97,11 @@ async function handleGenerateFlow(ctx) {
     // Upsert: create account if this is the very first time they call /generate
     let user = await User.findOneAndUpdate(
       { telegramId },
-      { $setOnInsert: { telegramId, firstName, isNewUser: true } },
+      { $setOnInsert: { telegramId, firstName } },
       { upsert: true, new: true }
     );
 
-    if (user.isNewUser) {
+    if (!user.onboardingComplete) {
       // ── New user: no saved preferences yet ────────────────────────────────
       await ctx.reply(
         `👋 Hi *${firstName}!* It looks like you haven't configured your post style yet.\n\n` +
@@ -147,7 +147,6 @@ async function handleUseDefault(ctx) {
       {
         $set: {
           onboardingComplete: true,
-          isNewUser: false,
           // Apply default values explicitly in case they differ from schema defaults
           preferredStyles: ['Conversational', 'Storytelling', 'Punchy & Direct'],
           preferredLayout: 'Short Para',
@@ -168,7 +167,7 @@ async function handleUseDefault(ctx) {
 }
 
 /**
- * Master entry point for /start and /setStyle.
+ * Master entry point for /start and /setstyle.
  * Resets onboarding state and presents the Manual vs Analyze choice.
  */
 async function startSetupPrompt(ctx) {
@@ -177,7 +176,7 @@ async function startSetupPrompt(ctx) {
 
   await User.findOneAndUpdate(
     { telegramId },
-    { $set: { onboardingComplete: false, inputState: 'idle' } },
+    { $set: { inputState: 'idle' } },
     { upsert: true }
   );
 
@@ -197,8 +196,8 @@ async function startSetupPrompt(ctx) {
 /**
  * /start handler.
  *
- * - First visit  → isNewUser = true  → show intro + send to handleGenerateFlow
- * - Return visit → isNewUser = false → greet + suggest /generate or /help
+ * - First visit  → user doc doesn't exist yet          → show intro + send to handleGenerateFlow
+ * - Return visit → onboardingComplete may be true/false → greet + suggest /generate or /help
  */
 async function handleStart(ctx) {
   if (!ctx.from) return;
@@ -211,14 +210,8 @@ async function handleStart(ctx) {
     const isFirstEver = !user;
 
     if (isFirstEver) {
-      // Brand new user — create their document with isNewUser: true
-      user = await User.create({ telegramId, firstName, isNewUser: true });
-    } else {
-      // Returning user — ensure isNewUser is false (they've been here before)
-      if (user.isNewUser) {
-        // Edge case: they started but never completed setup; still treat as "returning"
-        // for the /start welcome, but keep isNewUser true until they finish setup.
-      }
+      // Brand new user — create their document
+      user = await User.create({ telegramId, firstName });
     }
 
     const introText =
@@ -227,10 +220,10 @@ async function handleStart(ctx) {
       `🎛️ Commands:\n` +
       `/start - Kick off smart onboarding to extract your unique writing style.\n` +
       `/generate - Record a voice note and let me generate your next post.\n` +
-      `/setStyle - Manually customize your preferred layouts, tone, and formatting.\n` +
+      `/setstyle - Manually customize your preferred layouts, tone, and formatting.\n` +
       `/connect - Securely link your LinkedIn account for instant publishing.\n` +
       `/settings - View your current configuration and brand guidelines.\n` +
-      `/delData - Erase your preferences, credentials, and transient data for complete privacy.\n` +
+      `/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your preferred styles, layout, tone, LinkedIn credentials, and all generation history, keeping only your Telegram ID and Name.\n` +
       `/help - Display this quick guide to all available commands.`;
 
     await ctx.reply(introText);
@@ -346,8 +339,6 @@ async function handleTonePick(ctx) {
         $set: {
           preferredTone:      tone,
           onboardingComplete: true,
-          // Mark as returning user — they've now completed at least one setup
-          isNewUser:          false,
           inputState:         'idle',
         },
       },
@@ -363,7 +354,7 @@ async function handleTonePick(ctx) {
     await promptGenerate(ctx);
   } catch (err) {
     console.error('[onboarding] handleTonePick:', err);
-    await ctx.reply('😔 Database error. Please try /setStyle again.');
+    await ctx.reply('😔 Database error. Please try /setstyle again.');
   }
 }
 

@@ -2,18 +2,39 @@
 
 const { GoogleGenAI } = require('@google/genai');
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const MODEL = 'gemini-2.5-flash';
+// Lazy-init: SDK is created on first use so the module can be safely required
+// before environment variables are loaded (e.g., during serverless cold-start).
+let _genAI = null;
+function getGenAI() {
+  if (!_genAI) _genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  return _genAI;
+}
+
+const MODEL   = 'gemini-2.5-flash';
 const TIMEOUT = 90_000;
 
+// Calls the Gemini API with a hard timeout.
+// Timer is cleared immediately when Gemini resolves so no dangling timers accumulate.
 async function callGemini(payload) {
-  const result = await Promise.race([
-    genAI.models.generateContent(payload),
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`[Gemini] Request timed out after ${TIMEOUT / 1000}s`)), TIMEOUT)),
-  ]);
-  const text = (result?.text ?? '').trim();
-  if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
-  return text;
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`[Gemini] Request timed out after ${TIMEOUT / 1000}s`)),
+      TIMEOUT
+    );
+  });
+
+  try {
+    const result = await Promise.race([
+      getGenAI().models.generateContent(payload),
+      timeoutPromise,
+    ]);
+    const text = (result?.text ?? '').trim();
+    if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample }, refinementHint = null) {
@@ -57,17 +78,18 @@ Example exact output format:
 ["First post text...", "Second post text...", "Third post text..."]` +
     (refinementHint ? `\n\nREFINEMENT INSTRUCTIONS:\nApply these instructions: ${refinementHint}\nKeep the same 3-post structure.` : '');
 
+  // Telegram voice notes are always OGG/Opus; we declare the correct MIME type.
   const text = await callGemini({
     model: MODEL,
-    config: { 
-      systemInstruction, 
+    config: {
+      systemInstruction,
       responseMimeType: 'application/json',
-      responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+      responseSchema: { type: 'ARRAY', items: { type: 'STRING' } },
     },
     contents: [{
       role: 'user',
       parts: [
-        { inlineData: { mimeType: 'audio/ogg', data: audioBuffer.toString('base64') } },
+        { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: audioBuffer.toString('base64') } },
         { text: refinementHint ? 'Generate 3 refined LinkedIn posts based on the audio and the refinement instructions above.' : 'Generate 3 LinkedIn posts from this audio brain dump.' },
       ],
     }],
@@ -78,7 +100,6 @@ Example exact output format:
 
 // Takes a single selected post + user instructions.
 // Returns 3 new variation strings, all refined versions of that one post.
-// Replaces ALL session posts so the user can revise any of the 3 again indefinitely.
 async function revisePosts(postText, instructions) {
   const systemInstruction =
     `You are an elite LinkedIn ghostwriter. The user has selected one post and wants it improved based on their instructions.
@@ -99,10 +120,10 @@ Example output format:
 
   const text = await callGemini({
     model: MODEL,
-    config: { 
-      systemInstruction, 
+    config: {
+      systemInstruction,
       responseMimeType: 'application/json',
-      responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+      responseSchema: { type: 'ARRAY', items: { type: 'STRING' } },
     },
     contents: [{ role: 'user', parts: [{ text: 'Apply the revision instructions and return 3 refined variation posts.' }] }],
   });
@@ -124,30 +145,36 @@ function parsePostsJson(rawText) {
 }
 
 async function extractPreferences(exampleText) {
-  const systemInstruction = 
+  const systemInstruction =
     `You are an expert copywriter analyzer. A user has provided an example of their writing.
-    Analyze the text and extract their preferred 'Tone' and 'Styles'.
-    
-    Valid Styles (Pick up to 3): Punchy & Direct, Storytelling, Analytical, Conversational.
-    Valid Tones (Pick exactly 1): Professional, Casual, Motivational, Humorous.
-    
-    Return ONLY a JSON object with two keys:
-    {
-      "preferredTone": "Tone Name",
-      "preferredStyles": ["Style 1", "Style 2"]
-    }
-    No markdown formatting, no comments, just the raw JSON.`;
+Analyze the text and extract their preferred 'Tone' and 'Styles'.
+
+Valid Styles (Pick up to 3): Punchy & Direct, Storytelling, Analytical, Conversational.
+Valid Tones (Pick exactly 1): Professional, Casual, Motivational, Humorous.
+
+Return ONLY a raw JSON object with exactly two keys:
+{ "preferredTone": "Tone Name", "preferredStyles": ["Style 1", "Style 2"] }
+No markdown formatting, no comments, just the raw JSON.`;
 
   const text = await callGemini({
     model: MODEL,
-    config: { systemInstruction, responseMimeType: 'application/json' },
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          preferredTone:   { type: 'STRING' },
+          preferredStyles: { type: 'ARRAY', items: { type: 'STRING' } },
+        },
+        required: ['preferredTone', 'preferredStyles'],
+      },
+    },
     contents: [{ role: 'user', parts: [{ text: exampleText }] }],
   });
-  
+
   try {
-    const rawMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
-    const jsonStr = rawMatch ? rawMatch[1] : text;
-    return JSON.parse(jsonStr.trim());
+    return JSON.parse(text);
   } catch (err) {
     console.error('[Gemini] Failed to parse preferences:', text);
     throw new Error('Analysis failed. Please try again.');

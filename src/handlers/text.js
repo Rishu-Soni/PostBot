@@ -1,16 +1,17 @@
 'use strict';
 
-const { Markup }  = require('telegraf');
-const User        = require('../models/User');
+const User = require('../models/User');
 const { revisePosts, extractPreferences } = require('../services/gemini');
-const { sendCarouselPost } = require('./voice');
+const { sendPostMessages, MODIFY_MARKER } = require('./voice');
 
-const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
-
-function extractFromReply(replyText) {
-  const idx = replyText.indexOf(REVISION_MARKER);
+/**
+ * Extracts the original post text from a ForceReply message.
+ * The bot embeds it after MODIFY_MARKER when the user clicks "✏️ Modify this".
+ */
+function extractOriginalPost(replyText) {
+  const idx = replyText.indexOf(MODIFY_MARKER);
   if (idx === -1) return null;
-  return replyText.slice(idx + REVISION_MARKER.length).trim();
+  return replyText.slice(idx + MODIFY_MARKER.length).trim();
 }
 
 async function handleText(ctx) {
@@ -22,19 +23,25 @@ async function handleText(ctx) {
 
   // ── Smart Onboarding: Example Analysis ─────────────────────────────────────
   if (user?.inputState === 'awaiting_example') {
+    if (text.length < 80) {
+      return ctx.reply(
+        '⚠️ That post is too short to analyze accurately.\n\n' +
+        'Please paste a *full LinkedIn post* (at least a few sentences) so I can learn your writing style.',
+        { parse_mode: 'Markdown' }
+      );
+    }
     const thinkingMsg = await ctx.reply('🔍 Analyzing your post format, style, and tone...');
     try {
-      // Pin the message so the bot can always reference the layout later
+      // Pin the message so the bot can reference the layout in future generations
       await ctx.pinChatMessage(ctx.message.message_id, { disable_notification: true }).catch(() => {});
 
       const prefs = await extractPreferences(text);
 
-      user.preferredTone      = prefs.preferredTone    || 'Professional';
-      user.preferredStyles   = prefs.preferredStyles?.length ? prefs.preferredStyles : ['Punchy & Direct'];
-      user.preferredLayout   = 'Short Para'; // Default label; actual layout driven by the pinned message dynamically
-      user.inputState        = 'idle';
+      user.preferredTone    = prefs.preferredTone    || 'Professional';
+      user.preferredStyles  = prefs.preferredStyles?.length ? prefs.preferredStyles : ['Punchy & Direct'];
+      user.preferredLayout  = 'Short Para'; // Default label; actual layout driven by the pinned message dynamically
+      user.inputState       = 'idle';
       user.onboardingComplete = true;
-      user.isNewUser          = false; // Completed setup via Analyze Example
       await user.save();
 
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
@@ -52,18 +59,20 @@ async function handleText(ctx) {
       console.error('[text] Error analyzing example:', err);
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
       await ctx.reply(
-        '😔 I had trouble analyzing that text. Please try again or use /setStyle for manual setup.'
+        '😔 I had trouble analyzing that text. Please try again or use /setstyle for manual setup.'
       );
     }
     return;
   }
 
-  // ── Revision via ForceReply ─────────────────────────────────────────────────
-  const postText = ctx.message.reply_to_message?.text
-    ? extractFromReply(ctx.message.reply_to_message.text)
+  // ── Text Revision via ForceReply ────────────────────────────────────────────
+  // The user replied with text to a "✏️ Modify this" ForceReply prompt.
+  // The original post text is embedded in the quoted message after MODIFY_MARKER.
+  const originalPost = ctx.message.reply_to_message?.text
+    ? extractOriginalPost(ctx.message.reply_to_message.text)
     : null;
 
-  if (postText) return handleRevise(ctx, postText, text, user);
+  if (originalPost) return handleRevise(ctx, originalPost, text);
 
   // ── Unrecognised plain text ─────────────────────────────────────────────────
   await ctx.reply(
@@ -72,23 +81,18 @@ async function handleText(ctx) {
   );
 }
 
-async function handleRevise(ctx, postText, instructions, user) {
+/**
+ * Revises an existing post based on text instructions.
+ * The 3 new variations are sent as separate messages — no DB writes needed.
+ */
+async function handleRevise(ctx, originalPost, instructions) {
   const sanitised   = instructions.slice(0, 500).replace(/[`\\"]/g, "'");
   const thinkingMsg = await ctx.reply('✍️ Revising with Gemini… give me a moment.');
 
   try {
-    const newStrings = await revisePosts(postText, sanitised);
-
-    // Save revised posts to DB so Carousel nav works
-    if (user) {
-      user.currentPosts = newStrings;
-      await user.save();
-    }
-
+    const newStrings = await revisePosts(originalPost, sanitised);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
-    // Display revised posts in the same Carousel UI, preserving the user's media choice
-    const mediaChoice = user?.pendingMediaChoice || 'nomedia';
-    await sendCarouselPost(ctx, newStrings, 0, mediaChoice);
+    await sendPostMessages(ctx, newStrings);
   } catch (err) {
     console.error('[text] handleRevise:', err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});

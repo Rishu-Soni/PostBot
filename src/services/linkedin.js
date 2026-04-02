@@ -32,6 +32,7 @@ async function refreshAccessToken(refreshToken) {
     new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: process.env.LINKEDIN_CLIENT_ID, client_secret: process.env.LINKEDIN_CLIENT_SECRET }).toString(),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000 }
   );
+  if (!res.data.access_token) throw new Error('[LinkedIn] Token refresh succeeded but no access_token in response');
   return { accessToken: res.data.access_token, expiresIn: res.data.expires_in };
 }
 
@@ -77,26 +78,27 @@ async function registerAndUploadMedia(accessToken, authorUrn, ctx, fileId) {
 
 async function postToLinkedIn(accessToken, postText, ctx, pendingMediaIds = []) {
   const authorUrn = await getPersonUrn(accessToken);
-  
+
   let shareMediaCategory = 'NONE';
   let mediaArray = [];
-  
-  // Handle single or multiple image uploads
+
   if (pendingMediaIds && pendingMediaIds.length > 0) {
-      try {
-          const uploads = pendingMediaIds.map(fileId => registerAndUploadMedia(accessToken, authorUrn, ctx, fileId));
-          const assetUrns = await Promise.all(uploads);
-          
-          shareMediaCategory = 'IMAGE';
-          mediaArray = assetUrns.map(urn => ({
-              status: "READY",
-              description: { text: "Uploaded media" },
-              media: urn
-          }));
-      } catch (err) {
-          console.error('[LinkedIn] Error uploading media', err);
-          throw new Error('[LinkedIn] Failed to upload media files to your account.');
-      }
+    // LinkedIn hard-caps at 9 media items per post.
+    const capped = pendingMediaIds.slice(0, 9);
+    try {
+      const assetUrns = await Promise.all(
+        capped.map(fileId => registerAndUploadMedia(accessToken, authorUrn, ctx, fileId))
+      );
+      shareMediaCategory = 'IMAGE';
+      mediaArray = assetUrns.map(urn => ({
+        status: 'READY',
+        description: { text: 'Uploaded media' },
+        media: urn,
+      }));
+    } catch (err) {
+      console.error('[LinkedIn] Error uploading media', err);
+      throw new Error('[LinkedIn] Failed to upload media files to your account.');
+    }
   }
 
   const res = await axios.post(

@@ -1,69 +1,159 @@
 # Postbot Backend Documentation
 
-Postbot is a Telegram bot that acts as an elite ghostwriter, converting users' raw voice notes into highly polished, viral-ready LinkedIn posts. The backend is built with Node.js, Express, Telegraf (for Telegram API integration), Mongoose (for MongoDB), and uses the Google Gemini AI for processing and generating content.
+Postbot is a Telegram bot that acts as an elite ghostwriter, converting users' raw voice notes into polished, viral-ready LinkedIn posts. The backend is built with Node.js, Express, Telegraf, Mongoose (MongoDB), and the Google GenAI SDK.
+
+---
 
 ## Architecture Overview
 
-The backend is designed to be fully stateless in-memory, relying entirely on MongoDB for persistent state management and Telegram's callback mechanisms for navigation. It is optimized for serverless deployments (like Vercel).
+The backend is designed to be **maximally stateless**: the Telegram chat history is the source of truth for generated post text. Nothing about the content of generated posts is stored in the database. The database holds only user **preferences** and a minimal **media-upload session** when the user attaches files.
 
 ### Core Technologies
-- **Runtime:** Node.js (>= 18.0.0)
-- **Web Framework:** Express
-- **Telegram Framework:** Telegraf
-- **Database:** MongoDB (via Mongoose)
-- **AI Integration:** Google GenAI SDK (`gemini-2.5-flash` model)
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js ≥ 18 |
+| Web framework | Express |
+| Telegram framework | Telegraf |
+| Database | MongoDB via Mongoose |
+| AI | Google GenAI SDK (`gemini-2.5-flash`) |
+| HTTP client | Axios |
 
 ### Folder Structure
-- `index.js`: The main entry point. Initializes the express app, sets up the Telegram webhook, manages MongoDB connections, handles LinkedIn OAuth callbacks, and registers all bot commands and actions.
-- `src/handlers/`: Contains the logic for processing different types of Telegram updates.
-  - `onboarding.js`: Manages the setup flow for users (both Smart Onboarding via example text and Manual Setup via buttons) to define their default writing style, layout, and tone.
-  - `voice.js`: Handles incoming voice messages and manages the transition into the media attachment state (`awaiting_media`).
-  - `text.js`: Handles incoming text messages (fallback input, smart onboarding example analysis, and specific post revision prompts).
-  - `actions.js`: Processes callbacks from inline buttons (e.g., navigating the Carousel, choosing to post to LinkedIn, refining a post, finalizing media uploads).
-- `src/models/`: Contains database schemas.
-  - `User.js`: Schema for storing user settings, onboarding status, style preferences, LinkedIn OAuth credentials, and transient generation state (like `inputState`, `pendingMediaIds`, `currentPosts`, `selectedPostIndex`, and `mediaDoneMessageId`).
-- `src/services/`: Integrates with external APIs.
-  - `gemini.js`: Constructs the system prompts, sends audio/text to Gemini, and strictly parses the JSON response containing the generated posts. Also handles automated preference extraction from example posts.
-  - `linkedin.js`: Handles building authentication URLs, exchanging codes for access tokens, and pushing text or media payloads to the LinkedIn API.
+
+```
+index.js                  →  Entry point: Express app, webhook, LinkedIn OAuth callback, all bot bindings
+src/
+  handlers/
+    onboarding.js         →  /start, /generate, /setstyle flows (Manual Setup & Analyze Example)
+    voice.js              →  Voice note ingestion, generation pipeline, sendPostMessages helper
+    text.js               →  ForceReply revision handler, Analyze Example text interceptor
+    actions.js            →  Generic inline button handlers (post, modify, attach media, media done)
+  models/
+    User.js               →  Mongoose schema: preferences + minimal media-session state
+  services/
+    gemini.js             →  Prompt construction, Gemini API calls, JSON parsing
+    linkedin.js           →  OAuth, token management, media upload, UGC post publishing
+```
+
+---
 
 ## Key Features & Workflows
 
-1. **Smart & Manual User Onboarding (`/start`, `/setStyle`)**
-   New users are guided to set their brand guidelines. They can either:
-   - **Analyze Example:** Paste a successful post, and the bot will use Gemini to automatically extract the layout and tone. This example is pinned natively in the Telegram chat UI. **Stateless Constraint:** The text is NEVER saved to the database; it is dynamically fetched via the Telegram API (`getChat`) during generation.
-   - **Manual Setup:** Interactively define preferences by choosing Layouts ("Short Para", "Achievement", "Promote", "Daily Progress"), Styles, and Tone. Includes an "Undo Back" capability for seamless navigation. These choices are stored persistently.
+### 1. Onboarding (`/start`, `/setstyle`)
 
-2. **Post Generation & Media Workflows (`/generate`, Voice Input)**
-   The core flow: 
-   - User initiates `/generate` (which checks for dynamic pinned data or DB configurations) and sends a voice note (must be < 2 minutes).
-   - The bot asks if the user intends to attach media (*"Add media"* vs *"Continue without one"*).
-   - The audio and any pinned layouts (fetched live) are sent to Gemini to generate 3 alternative posts adhering to viral writing rules.
-   - The bot saves the options to the user's `currentPosts` array in MongoDB and displays the Interactive Post Carousel.
-   - **Media Branch:** If media was selected, the Carousel button becomes `✅ Choose this`. Clicking it prompts the user to upload photos/videos. The UI handles multiple uploads cleanly by deleting stale "✅ Done and post" prompts. When done, it publishes directly.
-   - **No Media Branch:** If no media was selected, the Carousel button is natively `✅ Post to LinkedIn` for direct text-only publishing.
+New users are guided to configure their writing style via two paths:
 
-3. **Interactive Post Carousel**
-   To reduce chat clutter, generated choices are presented in a unified single-message Carousel. Users can navigate laterally using `⬅️ Prev` and `Next ➡️` buttons, which instantly edit the message text with the relevant option from the database.
+- **Smart Onboarding (Analyze Example):** User pastes a real LinkedIn post (≥ 80 characters). The bot pins the message in the chat and calls Gemini to extract the user's `preferredTone` and `preferredStyles`. The pinned message is fetched dynamically via `ctx.telegram.getChat()` at generation time — the text is **never stored in the database**.
 
-4. **Post Refinement ("Modify This")**
-   Users can choose to modify a specific variant directly from the Carousel. The bot leverages Telegram's `ForceReply` mechanism, capturing the user's specific instructions for *that* index, and uses Gemini to revise it while maintaining the original core message.
+- **Manual Setup:** 3-step inline-button wizard (Layout → Style → Tone). Includes a `🔙 Back` button for step navigation without data loss.
 
-5. **LinkedIn Integration (`/connect`)**
-   Users can connect their LinkedIn accounts securely via OAuth 2.0. Once authorized, access and refresh tokens are managed in DB. Using the `✅ Post to LinkedIn` button in the Carousel lets users publish immediately—complete with any media they attached during the generation phase.
+After completing either path, `onboardingComplete` is set to `true`.
 
-6. **Data Management (`/settings`, `/delData`)**
-   Users can check their configuration status via Settings. They can completely wipe their styling preferences, transient generation state, and LinkedIn credentials dynamically via `/delData`, ensuring strong privacy and compliance.
+### 2. Post Generation (`/generate` + Voice Note)
+
+The core pipeline:
+
+1. User sends `/generate` — bot checks existing preferences and presents appropriate options.
+2. User sends a voice note (≤ 120s, ≤ 10 MB).
+3. The bot fetches the pinned message (layout reference), downloads the voice file, and calls Gemini.
+4. **3 separate Telegram messages** are sent — one per generated option — each with:
+   - `✅ Post this` → publishes directly to LinkedIn
+   - `✏️ Modify this` → opens a ForceReply refinement prompt
+   - `📸 Attach Media & Post` → opens a media upload session
+
+This replaces the previous single-message carousel. No post text is stored in MongoDB.
+
+### 3. Post Modification (Infinitely Repeatable)
+
+When the user clicks `✏️ Modify this`:
+1. The bot reads the post text from `ctx.callbackQuery.message.text`.
+2. It sends a **ForceReply** message with `MODIFY_MARKER` followed by the original post text embedded inline.
+3. The user replies with **text** or a **voice note**.
+4. The handler re-extracts the original post from the quoted message — **zero DB reads required** for the original content.
+5. 3 new variations are returned as separate messages. The cycle repeats indefinitely.
+
+### 4. Media Attachment
+
+When the user clicks `📸 Attach Media & Post`:
+1. The post text is extracted from the callback message and saved to `user.pendingPostText`.
+2. `user.inputState` is set to `'awaiting_media_upload'`.
+3. The user sends photos/videos; each gets its `file_id` appended to `user.pendingMediaIds` (capped at 9).
+4. The user clicks `✅ Done and Post` → the bot reads `pendingPostText` + `pendingMediaIds`, uploads to LinkedIn, and clears the session fields.
+
+### 5. LinkedIn Integration (`/connect`)
+
+OAuth 2.0 flow:
+- `/connect` sends the user an authorization link.
+- After authorization, the OAuth callback (`/auth/linkedin/callback`) exchanges the code, stores `linkedinAccessToken`, `linkedinRefreshToken`, and `linkedinTokenExpiry` in DB.
+- `getValidAccessToken()` transparently refreshes expired tokens. If the token is within 7 days of expiry and a refresh token exists, it silently refreshes in the background.
+
+### 6. Data Management (`/settings`, `/deldata`)
+
+- `/settings` displays current preferences and LinkedIn status. Includes a security notice recommending `/deldata`.
+- `/deldata` uses `$unset` to **permanently remove** all preference and session fields, keeping only `telegramId`, `firstName`, and the audit fields (`delDataAt`, `countDelData`). The `countDelData` counter is preserved via `$inc` for audit purposes.
+
+---
+
+## Database Schema (`User.js`)
+
+| Field | Type | Purpose |
+|---|---|---|
+| `telegramId` | String (unique) | Primary identifier |
+| `firstName` | String | Display name |
+| `preferredStyles` | [String] | Writing style choices (up to 3) |
+| `preferredLayout` | String | Layout template name |
+| `preferredTone` | String | Tone name |
+| `onboardingComplete` | Boolean | Whether setup is done |
+| `inputState` | String | `'idle'` or `'awaiting_media_upload'` |
+| `pendingPostText` | String | Post text saved for media upload session |
+| `pendingMediaIds` | [String] | Telegram file IDs queued for media post |
+| `mediaDoneMessageId` | Number | Message ID of the "Done and Post" prompt (for cleanup) |
+| `linkedinAccessToken` | String | LinkedIn OAuth access token |
+| `linkedinRefreshToken` | String | LinkedIn OAuth refresh token |
+| `linkedinTokenExpiry` | Date | Token expiry timestamp |
+| `delDataAt` | Date | Timestamp of last `/deldata` call |
+| `countDelData` | Number | Number of times user has deleted their data |
+
+> **Removed fields (previously present, now deleted):**
+> `currentPosts`, `selectedPostIndex`, `isNewUser`, `pendingVoiceFileId`, `pendingMediaChoice`, `pendingRefinementHint`
+
+---
+
+## Gemini Integration (`gemini.js`)
+
+- **Lazy SDK init:** `GoogleGenAI` is instantiated on first use, not at module load, preventing issues during serverless cold-start before env vars are available.
+- **Timer cleanup:** The `TIMEOUT` `Promise.race` clears its `setTimeout` in a `finally` block to prevent timer leaks under load.
+- **Schema-enforced JSON:** All three Gemini callers (`generatePosts`, `revisePosts`, `extractPreferences`) use `responseSchema` so the model is structurally constrained at the API level — no regex parsing.
+- **Correct MIME type:** Voice notes are declared as `audio/ogg; codecs=opus` (Telegram's actual encoding).
+
+---
 
 ## Environment Variables
-The application strictly requires the following configuration:
-- `TELEGRAM_BOT_TOKEN`: Provided by BotFather.
-- `WEBHOOK_DOMAIN`: The public domain where the webhook is hosted.
-- `WEBHOOK_SECRET_TOKEN`: Security token to verify incoming requests from Telegram.
-- `GEMINI_API_KEY`: Google AI Studio key.
-- `MONGODB_URI`: Connection string for the database.
 
-*(Optional but required for full features)*
-- `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_REDIRECT_URI`: For LinkedIn OAuth workflows.
+**Required:**
+
+| Variable | Description |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | From BotFather |
+| `WEBHOOK_DOMAIN` | Public URL of the deployment |
+| `WEBHOOK_SECRET_TOKEN` | Token to verify Telegram webhook requests |
+| `GEMINI_API_KEY` | Google AI Studio key |
+| `MONGODB_URI` | MongoDB connection string |
+
+**Optional (LinkedIn features):**
+
+| Variable | Description |
+|---|---|
+| `LINKEDIN_CLIENT_ID` | LinkedIn application client ID |
+| `LINKEDIN_CLIENT_SECRET` | LinkedIn application client secret |
+| `LINKEDIN_REDIRECT_URI` | OAuth callback URL |
+
+---
 
 ## Deployment Notes
-The server exposes an Express webhook endpoint at `/webhook/telegram`. It includes a `/setup` route to programmatically register the webhook domain and bot commands visible to end-users (`/start`, `/generate`, `/setStyle`, `/connect`, `/settings`, `/delData`, `/help`). The architecture avoids holding session state in Node.js memory (`Telegraf.session()` is not used), making it inherently highly scalable and capable of handling serverless spin-downs without data loss.
+
+- **Serverless (Vercel):** The `connectDB()` function checks `mongoose.connection.readyState === 1` before attempting reconnection. No in-memory caching variables (`dbReady`) that can go stale across cold-starts.
+- **Webhook registration:** Hit `GET /setup` once after deployment to register the Telegram webhook and bot commands.
+- **Health check:** `GET /health` returns DB connectivity status.
+- **No session middleware:** `Telegraf.session()` is not used. All state lives in MongoDB or the Telegram message payload.

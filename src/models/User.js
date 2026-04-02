@@ -14,15 +14,11 @@ const UserSchema = new mongoose.Schema(
 
     // Onboarding state
     onboardingComplete: { type: Boolean, default: false },
-    // true  → user has never completed onboarding (brand new account)
-    // false → returning user who has already configured preferences at least once
-    isNewUser: { type: Boolean, default: true },
 
-    // Transient generation session
+    // Transient session — only populated during media upload
     inputState: { type: String, default: 'idle' },
+    pendingPostText: { type: String, default: null },   // text of the post the user selected for media upload
     pendingMediaIds: { type: [String], default: [] },
-    currentPosts: { type: [String], default: [] },
-    selectedPostIndex: { type: Number, default: null },
     mediaDoneMessageId: { type: Number, default: null },
 
     // LinkedIn OAuth

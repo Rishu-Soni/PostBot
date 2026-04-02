@@ -22,11 +22,10 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET_TOKEN;
 
 const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick,
   handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt,
-  handleUseDefault
+  handleUseDefault, handleGenerateFlow
 } = require('./src/handlers/onboarding');
 const { handleVoice } = require('./src/handlers/voice');
-const { handlePostAction, handleMediaDonePost,
-  handleCarouselNav, handleCarouselMod, handleCarouselChooseMedia } = require('./src/handlers/actions');
+const { handleActionPost, handleActionModify, handleActionAttachMedia, handleMediaDonePost } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
 const User = require('./src/models/User');
@@ -67,10 +66,10 @@ app.get('/setup', async (req, res) => {
     await bot.telegram.setMyCommands([
       { command: 'start', description: 'Launch Postbot setup' },
       { command: 'generate', description: 'Start generating a post' },
-      { command: 'setStyle', description: 'Set preferred post style' },
+      { command: 'setstyle', description: 'Set preferred post style' },
       { command: 'connect', description: 'Link your LinkedIn account' },
       { command: 'settings', description: 'View & update your preferences' },
-      { command: 'delData', description: 'Delete your data completely' },
+      { command: 'deldata', description: 'Delete your data completely' },
       { command: 'help', description: 'Show quick guide' },
     ]);
 
@@ -125,11 +124,10 @@ bot.start(async (ctx) => { await connectDB(); return handleStart(ctx); });
 
 bot.command('generate', async (ctx) => {
   await connectDB();
-  const { handleGenerateFlow } = require('./src/handlers/onboarding');
   return handleGenerateFlow(ctx);
 });
 
-bot.command('setStyle', async (ctx) => {
+bot.command('setstyle', async (ctx) => {
   await connectDB();
   await startSetupPrompt(ctx);
 });
@@ -162,7 +160,8 @@ bot.command('settings', async (ctx) => {
       `• Writing styles: ${user.preferredStyles?.length ? user.preferredStyles.join(', ') : 'Not set'}\n` +
       `• Layout: ${user.preferredLayout || 'Not set'}\n` +
       `• Tone: ${user.preferredTone || 'Not set'}\n` +
-      `• LinkedIn: ${liStatus}\n`,
+      `• LinkedIn: ${liStatus}\n\n` +
+      `🔒 *Privacy & Security:*\nFor your security, you can run /deldata at any time to permanently delete all of this data from our database (keeping only your Telegram ID and Name).\n`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([[Markup.button.callback('🔄 Update Preferences', 'change_prefs')]]),
@@ -180,50 +179,52 @@ bot.command('help', (ctx) => ctx.reply(
   '🎛️ Commands:\n' +
   '/start - Kick off smart onboarding to extract your unique writing style.\n' +
   '/generate - Record a voice note and let me generate your next post.\n' +
-  '/setStyle - Manually customize your preferred layouts, tone, and formatting.\n' +
+  '/setstyle - Manually customize your preferred layouts, tone, and formatting.\n' +
   '/connect - Securely link your LinkedIn account for instant publishing.\n' +
   '/settings - View your current configuration and brand guidelines.\n' +
-  '/delData - Erase your preferences, credentials, and transient data for complete privacy.\n' +
+  '/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your preferred styles, layout, tone, LinkedIn credentials, and all generation history, keeping only your Telegram ID and Name.\n' +
   '/help - Display this quick guide to all available commands.'
 ));
 
-bot.command('delData', async (ctx) => {
+bot.command('deldata', async (ctx) => {
   const telegramId = String(ctx.from.id);
   try {
     await connectDB();
     await ctx.deleteMessage().catch(() => { });
 
-    const result = await User.findOneAndUpdate(
-      { telegramId },
-      {
-        $set: {
-          preferredStyles: [], preferredLayout: 'Short Para', preferredTone: 'Professional',
-          onboardingComplete: false, linkedinAccessToken: null, linkedinRefreshToken: null,
-          linkedinTokenExpiry: null, delDataAt: new Date(),
-          // Reset ALL transient session state
-          inputState: 'idle', pendingMediaIds: [],
-          currentPosts: [], selectedPostIndex: null,
-          mediaDoneMessageId: null,
-          // Mark as new user again so /generate shows the fresh-user prompt
-          isNewUser: true,
-        },
-        $inc: { countDelData: 1 },
-      }
-    );
+    const user = await User.findOne({ telegramId });
 
-    // Guard: user might not exist (e.g. typed /delData before ever starting the bot)
-    if (!result) {
+    // Guard: user might not exist
+    if (!user) {
       return ctx.reply('ℹ️ No account found to delete. Send /start to create one.');
     }
 
+    await User.updateOne(
+      { telegramId },
+      {
+        $unset: {
+          preferredStyles: '', preferredLayout: '', preferredTone: '',
+          onboardingComplete: '', linkedinAccessToken: '', linkedinRefreshToken: '',
+          linkedinTokenExpiry: '', inputState: '', pendingPostText: '',
+          pendingMediaIds: '', mediaDoneMessageId: '',
+        },
+        $set:  { delDataAt: new Date() },
+        $inc:  { countDelData: 1 },       // preserve the audit counter
+      }
+    );
+
     await ctx.reply(
-      '🗑 *Your data has been deleted.*\n\n' +
-      'Cleared: LinkedIn credentials & content preferences.\n\n' +
-      'Send /start to set up Postbot again.',
+      '🗑 *Your data has been permanently deleted.*\n\n' +
+      'To maintain your privacy and security, the following data has been completely removed from our database:\n' +
+      '• Your writing preferences (Styles, Layout, Tone)\n' +
+      '• Your LinkedIn credentials and connection status\n' +
+      '• Any transient generation state or pending posts\n\n' +
+      'Only your Telegram ID and First Name have been kept to allow you to interact with the bot again.\n\n' +
+      'Send /start to set up Postbot again from scratch.',
       { parse_mode: 'Markdown' }
     );
   } catch (err) {
-    console.error('[/delData] Error:', err);
+    console.error('[/deldata] Error:', err);
     await ctx.reply('😔 Something went wrong. Please try again.');
   }
 });
@@ -242,15 +243,13 @@ bot.action('gen_use_default', async (ctx) => { await connectDB(); return handleU
 bot.action('gen_saved',       async (ctx) => { await connectDB(); return promptGenerate(ctx); });
 bot.action('gen_new',         async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
 
-// Media mapping
-bot.action('media_done_post',    async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
+// Generic post actions (text extracted from callback message — no DB index lookup)
+bot.action('action_post',         async (ctx) => { await connectDB(); return handleActionPost(ctx); });
+bot.action('action_modify',       async (ctx) => { await connectDB(); return handleActionModify(ctx); });
+bot.action('action_attach_media', async (ctx) => { await connectDB(); return handleActionAttachMedia(ctx); });
 
-// Carousel navigation & actions
-bot.action(/^carousel_prev:(\d+)$/,          async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
-bot.action(/^carousel_next:(\d+)$/,          async (ctx) => { await connectDB(); return handleCarouselNav(ctx); });
-bot.action(/^carousel_mod:(\d+)$/,           async (ctx) => { await connectDB(); return handleCarouselMod(ctx); });
-bot.action(/^carousel_post:(\d+)$/,          async (ctx) => { await connectDB(); return handlePostAction(ctx); });
-bot.action(/^carousel_choose_media:(\d+)$/,  async (ctx) => { await connectDB(); return handleCarouselChooseMedia(ctx); });
+// Media upload done
+bot.action('media_done_post', async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
 
 bot.on('voice', async (ctx) => { await connectDB(); return handleVoice(ctx); });
 bot.on('text', async (ctx) => { await connectDB(); return handleText(ctx); });
@@ -260,7 +259,7 @@ bot.on(['photo', 'video'], async (ctx) => {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  // Only accept media after the user has clicked "✅ Choose This" on a carousel post
+  // Only accept media after the user has clicked "📸 Attach Media & Post" on a generated post
   if (user && user.inputState === 'awaiting_media_upload') {
     let fileId;
     if (ctx.message.photo) {

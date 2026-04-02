@@ -3,29 +3,74 @@
 const { Markup } = require('telegraf');
 const User = require('../models/User');
 const { postToLinkedIn, getValidAccessToken, buildAuthUrl } = require('../services/linkedin');
-const { sendCarouselPost } = require('./voice');
+const { MODIFY_MARKER, extractPostText } = require('./voice');
 
 const LINKEDIN_ENABLED = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'LINKEDIN_REDIRECT_URI'].every(k => process.env[k]);
-const REVISION_MARKER = 'Reply to this message with your instructions to modify this post:\n\n---\n';
 
 /**
- * Handles Carousel [✅ Choose This] / [📸 Attach Media & Post].
- * User has selected which post they want, now we ask them to upload media.
+ * Handles [✅ Post this].
+ * Extracts the post text directly from the callback message — no DB read for content.
  */
-async function handleCarouselChooseMedia(ctx) {
-  await ctx.answerCbQuery();
-  const index      = parseInt(ctx.match[1], 10);
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
+async function handleActionPost(ctx) {
+  await ctx.answerCbQuery('⏳ Working on it…');
 
-  if (!user || !user.currentPosts || !user.currentPosts[index]) {
-    return ctx.reply('⚠️ Could not find the post. Please try generating again.');
+  const postText = extractPostText(ctx.callbackQuery.message.text);
+  if (!postText) {
+    return ctx.reply('⚠️ Could not read the post text. Please try generating again.');
   }
 
-  // Lock in the selected post and open the media upload window
-  user.inputState         = 'awaiting_media_upload';
-  user.selectedPostIndex  = index;
-  user.pendingMediaIds    = [];
+  const telegramId = String(ctx.from.id);
+  const user = await User.findOne({ telegramId });
+  if (!user) return ctx.reply('⚠️ Account not found. Send /start to set up.');
+
+  const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn, please wait…');
+  await executeLinkedInPublish(ctx, user, postText, [], thinkingMsg);
+}
+
+/**
+ * Handles [✏️ Modify this].
+ * Embeds the original post text in a ForceReply message after MODIFY_MARKER.
+ * When the user replies (text or voice), the original post text is re-extracted
+ * from the quoted message — zero DB state required.
+ */
+async function handleActionModify(ctx) {
+  await ctx.answerCbQuery();
+
+  const postText = extractPostText(ctx.callbackQuery.message.text);
+  if (!postText) {
+    return ctx.reply('⚠️ Could not read the post text. Please try generating again.');
+  }
+
+  await ctx.reply(
+    `${MODIFY_MARKER}${postText}`,
+    Markup.forceReply()
+  );
+}
+
+/**
+ * Handles [📸 Attach Media & Post].
+ * This is the ONLY action that writes content to the DB:
+ *   - pendingPostText  → the specific post the user wants to publish with media
+ *   - inputState       → 'awaiting_media_upload'
+ * This is a deliberate minimal exception to the stateless architecture — without
+ * storing the selected post text here, there is no way to re-associate it with
+ * the media files that arrive as separate Telegram messages.
+ */
+async function handleActionAttachMedia(ctx) {
+  await ctx.answerCbQuery();
+
+  const postText = extractPostText(ctx.callbackQuery.message.text);
+  if (!postText) {
+    return ctx.reply('⚠️ Could not read the post text. Please try generating again.');
+  }
+
+  const telegramId = String(ctx.from.id);
+  const user = await User.findOne({ telegramId });
+  if (!user) return ctx.reply('⚠️ Account not found. Send /start to set up.');
+
+  user.inputState        = 'awaiting_media_upload';
+  user.pendingPostText   = postText;
+  user.pendingMediaIds   = [];
   user.mediaDoneMessageId = null;
   await user.save();
 
@@ -39,85 +84,20 @@ async function handleCarouselChooseMedia(ctx) {
 }
 
 /**
- * Handles Carousel [⬅️ Prev] and [Next ➡️] navigation.
- */
-async function handleCarouselNav(ctx) {
-  const index      = parseInt(ctx.match[1], 10);
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
-
-  if (!user || !user.currentPosts || index < 0 || index >= user.currentPosts.length) {
-    return ctx.answerCbQuery('⚠️ Could not load post. Try generating a new one.', { show_alert: true });
-  }
-
-  await ctx.answerCbQuery();
-  await sendCarouselPost(ctx, user.currentPosts, index);
-}
-
-/**
- * Handles Carousel [✏️ Modify This].
- * Resets inputState to 'idle' so any stale 'awaiting_media_upload' state is cleared.
- */
-async function handleCarouselMod(ctx) {
-  await ctx.answerCbQuery();
-  const index      = parseInt(ctx.match[1], 10);
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
-
-  if (!user || !user.currentPosts || !user.currentPosts[index]) {
-    return ctx.reply('⚠️ Could not find the post to revise. Please generate a new one.');
-  }
-
-  if (user.inputState === 'awaiting_media_upload') {
-    user.inputState        = 'idle';
-    user.selectedPostIndex = null;
-    user.mediaDoneMessageId = null;
-    await user.save();
-  }
-
-  const postText = user.currentPosts[index];
-  await ctx.reply(
-    `✏️ ${REVISION_MARKER}${postText}`,
-    Markup.forceReply()
-  );
-}
-
-/**
- * Handles Carousel [✅ Post Directly] — the no-media path.
- */
-async function handlePostAction(ctx) {
-  const index      = parseInt(ctx.match[1], 10);
-  const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
-
-  if (!user || !user.currentPosts || !user.currentPosts[index]) {
-    return ctx.answerCbQuery('⚠️ Could not read the post text. Please try again.', { show_alert: true });
-  }
-
-  const postText = user.currentPosts[index];
-  await ctx.answerCbQuery('⏳ Working on it…');
-  const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn, please wait…');
-
-  await executeLinkedInPublish(ctx, user, postText, thinkingMsg);
-}
-
-/**
- * Handles [✅ Done and Post] after user has uploaded media to an awaiting_media_upload session.
+ * Handles [✅ Done and Post] — fired after the user has uploaded all their media.
+ * Reads pendingPostText + pendingMediaIds from DB and publishes to LinkedIn.
  */
 async function handleMediaDonePost(ctx) {
   await ctx.answerCbQuery();
+
   const telegramId = String(ctx.from.id);
-  const user       = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId });
 
-  if (!user || user.inputState !== 'awaiting_media_upload' || user.selectedPostIndex === null) {
-    return ctx.reply('⚠️ Session expired or invalid. Please generate a new post.');
-  }
-
-  const index    = user.selectedPostIndex;
-  const postText = user.currentPosts[index];
-
-  if (!postText) {
-    return ctx.reply('⚠️ Could not read the post text. Please try again.');
+  if (!user || user.inputState !== 'awaiting_media_upload' || !user.pendingPostText) {
+    return ctx.reply(
+      '⚠️ Session expired or invalid.\n\nPlease generate a new post and click *📸 Attach Media & Post* again.',
+      { parse_mode: 'Markdown' }
+    );
   }
 
   if (user.mediaDoneMessageId) {
@@ -125,42 +105,42 @@ async function handleMediaDonePost(ctx) {
   }
 
   const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn with your media, please wait…');
-  await executeLinkedInPublish(ctx, user, postText, thinkingMsg);
+  await executeLinkedInPublish(ctx, user, user.pendingPostText, user.pendingMediaIds, thinkingMsg);
 }
 
-// ── Shared LinkedIn publish logic ─────────────────────────────────────────────
+// ── Shared LinkedIn publish logic ──────────────────────────────────────────────
 
-async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
+async function executeLinkedInPublish(ctx, user, postText, mediaIds, thinkingMsg) {
   try {
     let accessToken;
     try {
       accessToken = await getValidAccessToken(user);
     } catch (tokenErr) {
       if (tokenErr.message === 'NOT_CONNECTED' || tokenErr.message === 'TOKEN_EXPIRED') {
+        await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
         if (!LINKEDIN_ENABLED) {
           return ctx.reply('⚠️ LinkedIn integration is not configured on this server.');
         }
         const prompt = tokenErr.message === 'TOKEN_EXPIRED'
           ? '🔒 *LinkedIn session expired.*\n\nRe-authorise to continue posting:'
           : '🔗 *LinkedIn not connected yet!*\n\nLink your account to start posting:';
-        await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
         return ctx.reply(
-          `${prompt}\n\n[👉 Connect LinkedIn](${buildAuthUrl(String(ctx.from.id))})`,
+          `${prompt}\n\n[👉 Connect LinkedIn](${buildAuthUrl(String(ctx.from.id))})\n\n` +
+          `_Once connected, click *✅ Post this* on your chosen post again._`,
           { parse_mode: 'Markdown', disable_web_page_preview: true }
         );
       }
       throw tokenErr;
     }
 
-    const { postUrl } = await postToLinkedIn(accessToken, postText, ctx, user.pendingMediaIds || []);
+    const { postUrl } = await postToLinkedIn(accessToken, postText, ctx, mediaIds);
 
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
 
-    // Clear all session state after a successful post
-    user.pendingMediaIds    = [];
-    user.currentPosts       = [];
-    user.inputState         = 'idle';
-    user.selectedPostIndex  = null;
+    // Clear the media-upload session state after a successful post.
+    user.pendingPostText   = null;
+    user.pendingMediaIds   = [];
+    user.inputState        = 'idle';
     user.mediaDoneMessageId = null;
     await user.save();
 
@@ -180,9 +160,8 @@ async function executeLinkedInPublish(ctx, user, postText, thinkingMsg) {
 }
 
 module.exports = {
-  handlePostAction,
+  handleActionPost,
+  handleActionModify,
+  handleActionAttachMedia,
   handleMediaDonePost,
-  handleCarouselChooseMedia,
-  handleCarouselNav,
-  handleCarouselMod,
 };
