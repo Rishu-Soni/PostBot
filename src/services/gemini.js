@@ -38,29 +38,42 @@ async function callGemini(payload) {
 }
 
 async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample }, refinementHint = null) {
-  const architectureRules = layoutExample
-    ? `VIRAL POST ARCHITECTURE & QUALITY RULES:
+  let systemInstruction;
+
+  if (refinementHint) {
+    systemInstruction = `You are an elite LinkedIn ghostwriter. The user wants to revise an existing post using voice instructions.
+
+${refinementHint}
+
+CRITICAL REVISION RULES:
+1. STRICT FORMAT PRESERVATION: You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the original post. Do NOT restructure the post.
+2. ACCURATE MODIFICATION: Listen to the audio and apply the user's specific changes to the content.
+3. OUTPUT: Generate 3 distinct variations of the revised post.
+4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
+Example: ["Variation 1...", "Variation 2...", "Variation 3..."]`;
+  } else {
+    const architectureRules = layoutExample
+      ? `VIRAL POST ARCHITECTURE & QUALITY RULES:
 1. STRICT LAYOUT MATCHING (CRITICAL):
    - You MUST exactly mirror the layout, paragraph breaks, and sentence lengths of the example post provided.
    - Do NOT force a typical "Hook-Body-Conclusion" structure if it conflicts with the example.
 2. BAN LIST: Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament"). Sound human.
 3. HASHTAGS: Match the hashtag usage pattern (amount/placement) of the example post.`
-    : `VIRAL POST ARCHITECTURE & QUALITY RULES:
+      : `VIRAL POST ARCHITECTURE & QUALITY RULES:
 1. THE HOOK (First 2 Lines):
    - Line 1: A concise, direct, and punchy scroll-stopper (e.g., a bold claim, a surprising failure, or a contrarian thought).
    - Line 2: Create an "information gap" that sets the stakes and forces the reader to click "see more". No fluff.
 2. THE BODY (150-300 words):
    - Format with maximum whitespace. Strictly 1-2 sentences per paragraph.
    - Translate the raw voice note into a compelling, story-driven narrative.
-   - BAN LIST: Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament", "tapestry", "navigate the landscape"). Sound like a real, authentic human.
+   - BAN LIST: Do not use AI-sounding jargon. Sound like a real, authentic human.
 3. THE ENGAGEMENT DRIVER (Ending):
    - Conclude with a polarizing, thought-provoking question or a subtle call-to-action that sparks debate.
    - CRITICAL: Do NOT directly ask for comments. Ask a question so specific they feel compelled to answer.
 4. HASHTAGS:
    - Append 5-8 highly relevant, high-traffic hashtags at the very bottom.`;
 
-  const systemInstruction =
-    `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
+    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
 
 CORE PARAMETERS:
 - WRITING STYLES: Create one post for each of these styles: ${styles.join(', ')}.
@@ -75,8 +88,8 @@ FORMATTING STRICT RULES:
 - RETURN EXCLUSIVELY A RAW JSON ARRAY containing exactly 3 string elements.
 - Do not wrap the output in markdown code blocks. No extra text before or after the array.
 Example exact output format:
-["First post text...", "Second post text...", "Third post text..."]` +
-    (refinementHint ? `\n\nREFINEMENT INSTRUCTIONS:\nApply these instructions: ${refinementHint}\nKeep the same 3-post structure.` : '');
+["First post text...", "Second post text...", "Third post text..."]`;
+  }
 
   // Telegram voice notes are always OGG/Opus; we declare the correct MIME type.
   const text = await callGemini({
@@ -90,7 +103,7 @@ Example exact output format:
       role: 'user',
       parts: [
         { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: audioBuffer.toString('base64') } },
-        { text: refinementHint ? 'Generate 3 refined LinkedIn posts based on the audio and the refinement instructions above.' : 'Generate 3 LinkedIn posts from this audio brain dump.' },
+        { text: refinementHint ? 'Generate 3 refined LinkedIn posts based on the audio and the original post.' : 'Generate 3 LinkedIn posts from this audio brain dump.' },
       ],
     }],
   });
@@ -102,20 +115,20 @@ Example exact output format:
 // Returns 3 new variation strings, all refined versions of that one post.
 async function revisePosts(postText, instructions) {
   const systemInstruction =
-    `You are an elite LinkedIn ghostwriter. The user has selected one post and wants it improved based on their instructions.
+    `You are an elite LinkedIn ghostwriter. The user has selected a specific post for revision, and provided text instructions for the changes.
 
 ORIGINAL POST:
-${postText}
+"${postText}"
 
-USER REVISION INSTRUCTIONS: ${instructions}
+USER REVISION INSTRUCTIONS: 
+"${instructions}"
 
-Your task:
-- Generate 3 distinct, refined variations of this post, each applying the user's revision instructions in a different creative way.
-- All 3 must stay true to the core idea of the original post.
-- Apply the same quality rules: compelling hook, authentic voice, no AI jargon, 150-300 words, 5-8 relevant hashtags at the bottom.
-- Return ONLY a raw JSON array of exactly 3 strings. No markdown, no code fences, no extra text.
-
-Example output format:
+CRITICAL REVISION RULES:
+1. STRICT FORMAT PRESERVATION (CRITICAL): You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the ORIGINAL POST. Do NOT rewrite the entire post into a different format.
+2. ACCURATE MODIFICATION: Apply the user's revision instructions aggressively to the content (change facts, add text, remove text as requested). If an instruction conflicts with the original, prioritize the instruction but KEEP the overall structure intact.
+3. OUTPUT: Generate 3 distinct variations of the revised post.
+4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
+Example exact output format:
 ["Variation 1...", "Variation 2...", "Variation 3..."]`;
 
   const text = await callGemini({
@@ -125,7 +138,7 @@ Example output format:
       responseMimeType: 'application/json',
       responseSchema: { type: 'ARRAY', items: { type: 'STRING' } },
     },
-    contents: [{ role: 'user', parts: [{ text: 'Apply the revision instructions and return 3 refined variation posts.' }] }],
+    contents: [{ role: 'user', parts: [{ text: 'Apply the revision instructions and return 3 refined variation posts as JSON.' }] }],
   });
 
   return parsePostsJson(text);
