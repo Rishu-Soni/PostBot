@@ -20,12 +20,11 @@ const WEBHOOK_PATH = '/webhook/telegram';
 const WEBHOOK_URL = `${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET_TOKEN;
 
-const { handleStart, handleChangePrefs, handleFlowPick, handleLayoutPick,
-  handleStylePick, handleTonePick, handleBack, promptGenerate, startSetupPrompt,
+const { handleStart, handleChangePrefs, handleFlowPick, promptGenerate, startSetupPrompt,
   handleUseDefault, handleGenerateFlow
 } = require('./src/handlers/onboarding');
 const { handleVoice } = require('./src/handlers/voice');
-const { handleActionPost, handleActionModify, handleActionAttachMedia, handleMediaDonePost } = require('./src/handlers/actions');
+const { handleActionPost, handleActionModify, handleActionAttachMedia, handleActionCancelMedia, handleMediaDonePost } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
 const User = require('./src/models/User');
@@ -44,18 +43,24 @@ app.use(express.json());
 
 // ── Express Routes ─────────────────────────────────────────────────────────────
 
-app.post(WEBHOOK_PATH, async (req, res) => {
+app.post(WEBHOOK_PATH, (req, res) => {
   if (WEBHOOK_SECRET && req.headers['x-telegram-bot-api-secret-token'] !== WEBHOOK_SECRET) {
     return res.status(403).send('Forbidden');
   }
-  try {
-    await connectDB();
-    await bot.handleUpdate(req.body);
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error('[Webhook] Error:', err);
-    res.status(200).send('OK');
-  }
+
+  // 1. Immediately acknowledge Telegram to explicitly prevent webhook retry spam & duplicate APIs.
+  res.status(200).send('OK');
+
+  // 2. Safely proxy the update asynchronously in the background to avoid blocking the webhook.
+  // Note: Vercel might freeze background execution if not strictly controlled; ensure container remains hot.
+  (async () => {
+    try {
+      await connectDB();
+      await bot.handleUpdate(req.body);
+    } catch (err) {
+      console.error('[Webhook Background Engine] Error:', err);
+    }
+  })();
 });
 
 app.get('/setup', async (req, res) => {
@@ -100,16 +105,35 @@ app.get('/auth/linkedin/callback', async (req, res) => {
     await connectDB();
     const { accessToken, refreshToken, expiresIn } = await exchangeCodeForToken(code);
 
-    await User.findOneAndUpdate(
+    // Critical 5 fix: fetch BEFORE update (new: false) so we can read pendingPostText,
+    // then atomically $unset it to prevent ghost-post re-appearance on future reconnects.
+    const user = await User.findOneAndUpdate(
       { telegramId },
-      { $set: { linkedinAccessToken: accessToken, linkedinRefreshToken: refreshToken, linkedinTokenExpiry: new Date(Date.now() + expiresIn * 1000) } }
+      {
+        $set:   { linkedinAccessToken: accessToken, linkedinRefreshToken: refreshToken, linkedinTokenExpiry: new Date(Date.now() + expiresIn * 1000) },
+        $unset: { pendingPostText: '', pendingMediaIds: '' },
+      },
+      { new: false }  // return PRE-update doc so pendingPostText is still readable
     );
 
-    await bot.telegram.sendMessage(
-      telegramId,
-      '🎉 *LinkedIn connected!*\n\nUse the *✅ Post to LinkedIn* button on any generated post to publish directly.\n\n🎙 Send a voice note to get started!',
-      { parse_mode: 'Markdown' }
-    );
+    if (user && user.pendingPostText) {
+      await bot.telegram.sendMessage(
+        telegramId,
+        `✅ Welcome back! Your LinkedIn account is reconnected.\n\nHere is your pending post:\n\n${user.pendingPostText}`,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback('✅ Post this',   'action_post'),
+            Markup.button.callback('✏️ Modify this', 'action_modify'),
+          ],
+          [Markup.button.callback('📸 Attach Media & Post', 'action_attach_media')]
+        ])
+      );
+    } else {
+      await bot.telegram.sendMessage(
+        telegramId,
+        'Account connected successfully! Please click \'✅ Post this\' on your preferred post above to publish it.'
+      );
+    }
 
     return res.send('<h2>✅ LinkedIn connected!</h2><p>You can close this tab and return to Telegram.</p>');
   } catch (err) {
@@ -118,17 +142,41 @@ app.get('/auth/linkedin/callback', async (req, res) => {
   }
 });
 
+// ── Global Middleware ─────────────────────────────────────────────────────────
+// Single connectDB() for every incoming bot update (Warning 6 fix).
+// Also acts as the global command interceptor: if the message is a slash-command,
+// aggressively reset any stale transient state so the user never gets permanently stuck.
+bot.use(async (ctx, next) => {
+  // Ensure DB is connected for every update — idempotent, no extra latency on warm connections.
+  await connectDB();
+
+  if (ctx.message?.text?.startsWith('/')) {
+    try {
+      if (ctx.from) {
+        await User.updateOne(
+          { telegramId: String(ctx.from.id) },
+          {
+            $set:   { inputState: 'idle' },
+            $unset: { pendingPostText: '', pendingMediaIds: '', mediaDoneMessageId: '' },
+          }
+        );
+      }
+    } catch (err) {
+      console.error('[Interceptor] State reset failed:', err.message);
+    }
+  }
+  return next();
+});
+
 // ── Bot Commands ──────────────────────────────────────────────────────────────
 
-bot.start(async (ctx) => { await connectDB(); return handleStart(ctx); });
+bot.start(async (ctx) => { return handleStart(ctx); });
 
 bot.command('generate', async (ctx) => {
-  await connectDB();
   return handleGenerateFlow(ctx);
 });
 
 bot.command('setstyle', async (ctx) => {
-  await connectDB();
   await startSetupPrompt(ctx);
 });
 
@@ -144,7 +192,6 @@ bot.command('connect', async (ctx) => {
 
 bot.command('settings', async (ctx) => {
   try {
-    await connectDB();
     const user = await User.findOne({ telegramId: String(ctx.from.id) });
     if (!user) return ctx.reply('No account found. Send /start to get going!');
 
@@ -155,16 +202,17 @@ bot.command('settings', async (ctx) => {
       : expired ? '⚠️ Session expired — send /connect to re-authorise'
         : '✅ Connected';
 
+    const chat = await ctx.telegram.getChat(ctx.chat.id);
+    const hasPinned = !!chat.pinned_message;
+
     await ctx.reply(
       `⚙️ *Your current settings:*\n\n` +
-      `• Writing styles: ${user.preferredStyles?.length ? user.preferredStyles.join(', ') : 'Not set'}\n` +
-      `• Layout: ${user.preferredLayout || 'Not set'}\n` +
-      `• Tone: ${user.preferredTone || 'Not set'}\n` +
+      `• Template: ${hasPinned ? '✅ Pinned in chat' : '❌ No template pinned (Using default Postbot style)'}\n` +
       `• LinkedIn: ${liStatus}\n\n` +
       `🔒 *Privacy & Security:*\nFor your security, you can run /deldata at any time to permanently delete all of this data from our database (keeping only your Telegram ID and Name).\n`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('🔄 Update Preferences', 'change_prefs')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('🔄 New Template', 'change_prefs')]]),
       }
     );
   } catch (err) {
@@ -189,7 +237,6 @@ bot.command('help', (ctx) => ctx.reply(
 bot.command('deldata', async (ctx) => {
   const telegramId = String(ctx.from.id);
   try {
-    await connectDB();
     await ctx.deleteMessage().catch(() => { });
 
     const user = await User.findOne({ telegramId });
@@ -213,12 +260,14 @@ bot.command('deldata', async (ctx) => {
       }
     );
 
+    try {
+      await ctx.telegram.unpinAllChatMessages(ctx.chat.id);
+    } catch (e) {
+      console.warn('[deldata] Unable to unpin messages:', e.message);
+    }
+
     await ctx.reply(
-      '🗑 *Your data has been permanently deleted.*\n\n' +
-      'To maintain your privacy and security, the following data has been completely removed from our database:\n' +
-      '• Your writing preferences (Styles, Layout, Tone)\n' +
-      '• Your LinkedIn credentials and connection status\n' +
-      '• Any transient generation state or pending posts\n\n' +
+      '🗑️ All your data, including your pinned style templates and LinkedIn connections, have been permanently deleted.\n\n' +
       'Only your Telegram ID and First Name have been kept to allow you to interact with the bot again.\n\n' +
       'Send /start to set up Postbot again from scratch.',
       { parse_mode: 'Markdown' }
@@ -231,31 +280,27 @@ bot.command('deldata', async (ctx) => {
 
 // ── Bot Actions ───────────────────────────────────────────────────────────────
 
-bot.action('change_prefs',   async (ctx) => { await connectDB(); return handleChangePrefs(ctx); });
-bot.action(/^ob_flow:(.+)$/, async (ctx) => { await connectDB(); return handleFlowPick(ctx); });
-bot.action(/^ob_style:(.+)$/,  async (ctx) => { await connectDB(); return handleStylePick(ctx); });
-bot.action(/^ob_layout:(.+)$/, async (ctx) => { await connectDB(); return handleLayoutPick(ctx); });
-bot.action(/^ob_tone:(.+)$/,   async (ctx) => { await connectDB(); return handleTonePick(ctx); });
-bot.action(/^ob_back:(.+)$/,   async (ctx) => { await connectDB(); return handleBack(ctx); });
+bot.action('change_prefs',   async (ctx) => { return handleChangePrefs(ctx); });
+bot.action(/^ob_flow:(.+)$/, async (ctx) => { return handleFlowPick(ctx); });
 
 // /generate flow
-bot.action('gen_use_default', async (ctx) => { await connectDB(); return handleUseDefault(ctx); });
-bot.action('gen_saved',       async (ctx) => { await connectDB(); return promptGenerate(ctx); });
-bot.action('gen_new',         async (ctx) => { await connectDB(); return startSetupPrompt(ctx); });
+bot.action('gen_use_default', async (ctx) => { return handleUseDefault(ctx); });
+bot.action('gen_saved',       async (ctx) => { return promptGenerate(ctx); });
+bot.action('gen_new',         async (ctx) => { return startSetupPrompt(ctx); });
 
 // Generic post actions (text extracted from callback message — no DB index lookup)
-bot.action('action_post',         async (ctx) => { await connectDB(); return handleActionPost(ctx); });
-bot.action('action_modify',       async (ctx) => { await connectDB(); return handleActionModify(ctx); });
-bot.action('action_attach_media', async (ctx) => { await connectDB(); return handleActionAttachMedia(ctx); });
+bot.action('action_post',         async (ctx) => { return handleActionPost(ctx); });
+bot.action('action_modify',       async (ctx) => { return handleActionModify(ctx); });
+bot.action('action_attach_media', async (ctx) => { return handleActionAttachMedia(ctx); });
 
-// Media upload done
-bot.action('media_done_post', async (ctx) => { await connectDB(); return handleMediaDonePost(ctx); });
+// Media upload done or cancel
+bot.action('media_done_post', async (ctx) => { return handleMediaDonePost(ctx); });
+bot.action('cancel_media',    async (ctx) => { return handleActionCancelMedia(ctx); });
 
-bot.on('voice', async (ctx) => { await connectDB(); return handleVoice(ctx); });
-bot.on('text', async (ctx) => { await connectDB(); return handleText(ctx); });
+bot.on('voice',         async (ctx) => { return handleVoice(ctx); });
+bot.on('text',          async (ctx) => { return handleText(ctx); });
 
 bot.on(['photo', 'video'], async (ctx) => {
-  await connectDB();
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
@@ -280,7 +325,10 @@ bot.on(['photo', 'video'], async (ctx) => {
         `✅ Media attached (${user.pendingMediaIds.length} total). Send another, or click Done to post.`,
         {
           reply_to_message_id: ctx.message.message_id,
-          ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and Post', 'media_done_post')]]),
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('✅ Done and Post', 'media_done_post')],
+            [Markup.button.callback('❌ Cancel Media Attach', 'cancel_media')]
+          ]),
         }
       );
 

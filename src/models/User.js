@@ -21,6 +21,9 @@ const UserSchema = new mongoose.Schema(
     pendingMediaIds: { type: [String], default: [] },
     mediaDoneMessageId: { type: Number, default: null },
 
+    // Rate limiter
+    lastGenerationAt: { type: Date, default: null },
+
     // LinkedIn OAuth
     linkedinAccessToken: { type: String, default: null },
     linkedinTokenExpiry: { type: Date, default: null },

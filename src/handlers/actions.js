@@ -12,17 +12,40 @@ const LINKEDIN_ENABLED = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'LINKE
  * Extracts the post text directly from the callback message — no DB read for content.
  */
 async function handleActionPost(ctx) {
-  await ctx.answerCbQuery('⏳ Working on it…');
-
   const postText = extractPostText(ctx.callbackQuery.message.text);
   if (!postText) {
+    await ctx.answerCbQuery('⚠️ Error reading post text', { show_alert: true });
     return ctx.reply('⚠️ Could not read the post text. Please try generating again.');
   }
 
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
-  if (!user) return ctx.reply('⚠️ Account not found. Send /start to set up.');
+  if (!user) {
+    await ctx.answerCbQuery();
+    return ctx.reply('⚠️ Account not found. Send /start to set up.');
+  }
 
+  // --- Strict Stateless Auth Intercept ---
+  try {
+    // Check if we have a valid token before we 'lock in' and display thinking messages.
+    await getValidAccessToken(user);
+  } catch (tokenErr) {
+    if (tokenErr.message === 'NOT_CONNECTED' || tokenErr.message === 'TOKEN_EXPIRED') {
+      await ctx.answerCbQuery();
+      if (!LINKEDIN_ENABLED) {
+        return ctx.reply('⚠️ LinkedIn integration is not configured on this server.');
+      }
+      return ctx.reply('I need permission to post to your LinkedIn first!', {
+        ...Markup.inlineKeyboard([
+          [Markup.button.url('👉 Connect LinkedIn', buildAuthUrl(telegramId))]
+        ])
+      });
+    }
+    await ctx.answerCbQuery('⚠️ Error verifying account status', { show_alert: true });
+    return ctx.reply('⚠️ Unexpected error verifying account status.');
+  }
+
+  await ctx.answerCbQuery('⏳ Working on it…');
   const thinkingMsg = await ctx.reply('⏳ Posting to LinkedIn, please wait…');
   await executeLinkedInPublish(ctx, user, postText, [], thinkingMsg);
 }
@@ -78,9 +101,50 @@ async function handleActionAttachMedia(ctx) {
     '📸 *Upload your photos or videos now.*\n\nSend all your media files, then click *Done and Post* when ready.',
     {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('✅ Done and Post', 'media_done_post')]]),
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Done and Post', 'media_done_post')],
+        [Markup.button.callback('❌ Cancel Media Attach', 'cancel_media')]
+      ]),
     }
   );
+}
+
+/**
+ * Handles [❌ Cancel Media Attach].
+ * Gracefully exits the media session, sanitizes the user's DB document, 
+ * and restores the original post options.
+ */
+async function handleActionCancelMedia(ctx) {
+  await ctx.answerCbQuery();
+
+  const telegramId = String(ctx.from.id);
+
+  // Atomically sanitize all transient session fields — using $unset guarantees
+  // Mongoose removes the fields from the document rather than writing undefined.
+  await User.updateOne(
+    { telegramId },
+    {
+      $set:   { inputState: 'idle' },
+      $unset: { pendingPostText: '', pendingMediaIds: '', mediaDoneMessageId: '' },
+    }
+  );
+
+  // Restore the original 3 inline buttons for the generated post
+  await ctx.editMessageText(
+    'Media attachment canceled\. You can modify or post the original text\.',
+    {
+      parse_mode: 'MarkdownV2',
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback('✅ Post this',   'action_post'),
+          Markup.button.callback('✏️ Modify this', 'action_modify'),
+        ],
+        [
+          Markup.button.callback('📸 Attach Media & Post', 'action_attach_media'),
+        ],
+      ]),
+    }
+  ).catch(() => {});
 }
 
 /**
@@ -149,6 +213,21 @@ async function executeLinkedInPublish(ctx, user, postText, mediaIds, thinkingMsg
       { parse_mode: 'Markdown', disable_web_page_preview: false }
     );
   } catch (err) {
+    if (err.response?.status === 401) {
+      await User.updateOne(
+        { telegramId: String(ctx.from.id) },
+        {
+          $unset: { linkedinAccessToken: '', linkedinRefreshToken: '', linkedinTokenExpiry: '' },
+          $set:   { pendingPostText: postText, pendingMediaIds: mediaIds || [] }
+        }
+      );
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      return ctx.reply(
+        '⚠️ Your LinkedIn connection expired or was revoked. Please reconnect to publish this post!',
+        Markup.inlineKeyboard([[Markup.button.url('👉 Connect LinkedIn', buildAuthUrl(String(ctx.from.id)))]])
+      );
+    }
+
     console.error('[actions] publish error:', err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
     await ctx.reply(
@@ -163,5 +242,6 @@ module.exports = {
   handleActionPost,
   handleActionModify,
   handleActionAttachMedia,
+  handleActionCancelMedia,
   handleMediaDonePost,
 };

@@ -46,47 +46,35 @@ async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample 
 ${refinementHint}
 
 CRITICAL REVISION RULES:
-1. STRICT FORMAT PRESERVATION: You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the original post. Do NOT restructure the post.
-2. ACCURATE MODIFICATION: Listen to the audio and apply the user's specific changes to the content.
+1. STRICT FORMAT PRESERVATION: You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the [ORIGINAL POST CONTENT]. Do NOT restructure the post.
+2. ACCURATE MODIFICATION: Listen to the audio and apply the specific changes from the [USER REFINEMENT INSTRUCTION] to the content.
 3. OUTPUT: Generate 3 distinct variations of the revised post.
 4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
 Example: ["Variation 1...", "Variation 2...", "Variation 3..."]`;
   } else {
-    const architectureRules = layoutExample
-      ? `VIRAL POST ARCHITECTURE & QUALITY RULES:
-1. STRICT LAYOUT MATCHING (CRITICAL):
-   - You MUST exactly mirror the layout, paragraph breaks, and sentence lengths of the example post provided.
-   - Do NOT force a typical "Hook-Body-Conclusion" structure if it conflicts with the example.
-2. BAN LIST: Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament"). Sound human.
-3. HASHTAGS: Match the hashtag usage pattern (amount/placement) of the example post.`
-      : `VIRAL POST ARCHITECTURE & QUALITY RULES:
-1. THE HOOK (First 2 Lines):
-   - Line 1: A concise, direct, and punchy scroll-stopper (e.g., a bold claim, a surprising failure, or a contrarian thought).
-   - Line 2: Create an "information gap" that sets the stakes and forces the reader to click "see more". No fluff.
-2. THE BODY (150-300 words):
-   - Format with maximum whitespace. Strictly 1-2 sentences per paragraph.
-   - Translate the raw voice note into a compelling, story-driven narrative.
-   - BAN LIST: Do not use AI-sounding jargon. Sound like a real, authentic human.
-3. THE ENGAGEMENT DRIVER (Ending):
-   - Conclude with a polarizing, thought-provoking question or a subtle call-to-action that sparks debate.
-   - CRITICAL: Do NOT directly ask for comments. Ask a question so specific they feel compelled to answer.
-4. HASHTAGS:
-   - Append 5-8 highly relevant, high-traffic hashtags at the very bottom.`;
+    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting high-converting viral posts. Your task is to analyze a raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
 
-    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting viral, high-converting posts. Your task is to analyze the provided raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
+You will receive two variables from the user:
+[EXEMPLAR_POST] - The master template to mimic.
+[USER_BRAIN_DUMP] - The raw transcription containing the factual narrative.
 
-CORE PARAMETERS:
-- WRITING STYLES: Create one post for each of these styles: ${styles.join(', ')}.
-- LAYOUT & STRUCTURE: ${layoutExample ? `Strictly mirror the structural layout of this example post:\n"${layoutExample}"\n(Ignore the content, just mimic the paragraph breaks, sentence length, and structural flow).` : `Strictly follow this layout: ${layout}.`}
-- TONE: Maintain a ${tone} tone throughout all posts.
-- LANGUAGE: Strictly English.
+### 🚨 THE CONTENT FIREWALL 🚨
+You must strictly separate FORMATTING from CONTENT. 
+1. **From the [EXEMPLAR_POST]**: Extract ONLY the structural DNA. This includes the paragraph spacing, sentence length rhythm, hook style, emoji frequency, formatting tricks (like bullet points or dashes), and the overall tone of voice (e.g., punchy, educational, or storytelling).
+2. **From the [USER_BRAIN_DUMP]**: Extract 100% of the facts, narratives, opinions, topics, and subject matter.
 
-${architectureRules}
+CRITICAL CONSTRAINTS:
+- YOU ARE STRICTLY FORBIDDEN from borrowing any subjects, facts, names, companies, stories, or events from the [EXEMPLAR_POST]. It is a structural blueprint ONLY.
+- NEVER hallucinate or inject facts outside of what is provided in the [USER_BRAIN_DUMP].
+- Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament"). Sound human.
+- Make sure to format emojis and spaces exactly as patterned in the [EXEMPLAR_POST].
+- Ensure you output 3 different angles or variations of the same core story/facts.
 
-FORMATTING STRICT RULES:
+### OUTPUT FORMAT
 - NO titles, NO headers, NO introductory text.
-- RETURN EXCLUSIVELY A RAW JSON ARRAY containing exactly 3 string elements.
+- RETURN EXCLUSIVELY A RAW JSON ARRAY containing exactly 3 string elements representing the 3 generated posts.
 - Do not wrap the output in markdown code blocks. No extra text before or after the array.
+
 Example exact output format:
 ["First post text...", "Second post text...", "Third post text..."]`;
   }
@@ -103,7 +91,10 @@ Example exact output format:
       role: 'user',
       parts: [
         { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: audioBuffer.toString('base64') } },
-        { text: refinementHint ? 'Generate 3 refined LinkedIn posts based on the audio and the original post.' : 'Generate 3 LinkedIn posts from this audio brain dump.' },
+        { text: refinementHint
+            ? 'Generate 3 refined LinkedIn posts based on the audio and the original post.'
+            : `[EXEMPLAR_POST]:\n"${layoutExample}"\n\n[USER_BRAIN_DUMP]: Listen to the attached audio.`
+        },
       ],
     }],
   });
@@ -117,15 +108,15 @@ async function revisePosts(postText, instructions) {
   const systemInstruction =
     `You are an elite LinkedIn ghostwriter. The user has selected a specific post for revision, and provided text instructions for the changes.
 
-ORIGINAL POST:
+[ORIGINAL POST CONTENT]:
 "${postText}"
 
-USER REVISION INSTRUCTIONS: 
+[USER REFINEMENT INSTRUCTION]: 
 "${instructions}"
 
 CRITICAL REVISION RULES:
-1. STRICT FORMAT PRESERVATION (CRITICAL): You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the ORIGINAL POST. Do NOT rewrite the entire post into a different format.
-2. ACCURATE MODIFICATION: Apply the user's revision instructions aggressively to the content (change facts, add text, remove text as requested). If an instruction conflicts with the original, prioritize the instruction but KEEP the overall structure intact.
+1. STRICT FORMAT PRESERVATION (CRITICAL): You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the [ORIGINAL POST CONTENT]. Do NOT rewrite the entire post into a different format.
+2. ACCURATE MODIFICATION: Apply the changes from the [USER REFINEMENT INSTRUCTION] aggressively to the content (change facts, add text, remove text as requested). If an instruction conflicts with the original, prioritize the instruction but KEEP the overall structure intact.
 3. OUTPUT: Generate 3 distinct variations of the revised post.
 4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
 Example exact output format:
@@ -157,41 +148,27 @@ function parsePostsJson(rawText) {
   }
 }
 
-async function extractPreferences(exampleText) {
-  const systemInstruction =
-    `You are an expert copywriter analyzer. A user has provided an example of their writing.
-Analyze the text and extract their preferred 'Tone' and 'Styles'.
+async function generateDummyPost(input, isVoice = false) {
+  const systemInstruction = `You are an elite LinkedIn ghostwriter. The user has described their desired vibe for their posts.
+Your task is to generate a single 250-word dummy LinkedIn post that perfectly captures this vibe, style, layout, and tone.
+The topic can be a generic professional story or advice (e.g., a career learning or a milestone).
+DO NOT include any markdown code blocks, titles, or headers. Return ONLY the raw post text formatted exactly how they want it.`;
 
-Valid Styles (Pick up to 3): Punchy & Direct, Storytelling, Analytical, Conversational.
-Valid Tones (Pick exactly 1): Professional, Casual, Motivational, Humorous.
+  const contents = [{
+    role: 'user',
+    parts: isVoice
+      ? [
+          { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: input.toString('base64') } },
+          { text: 'Listen to my vibe description and generate the dummy post.' }
+        ]
+      : [{ text: `Vibe description: "${input}"\n\nGenerate the dummy post.` }]
+  }];
 
-Return ONLY a raw JSON object with exactly two keys:
-{ "preferredTone": "Tone Name", "preferredStyles": ["Style 1", "Style 2"] }
-No markdown formatting, no comments, just the raw JSON.`;
-
-  const text = await callGemini({
+  return await callGemini({
     model: MODEL,
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          preferredTone:   { type: 'STRING' },
-          preferredStyles: { type: 'ARRAY', items: { type: 'STRING' } },
-        },
-        required: ['preferredTone', 'preferredStyles'],
-      },
-    },
-    contents: [{ role: 'user', parts: [{ text: exampleText }] }],
+    config: { systemInstruction },
+    contents,
   });
-
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    console.error('[Gemini] Failed to parse preferences:', text);
-    throw new Error('Analysis failed. Please try again.');
-  }
 }
 
-module.exports = { generatePosts, revisePosts, extractPreferences };
+module.exports = { generatePosts, revisePosts, generateDummyPost };

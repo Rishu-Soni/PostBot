@@ -3,52 +3,6 @@
 const { Markup } = require('telegraf');
 const User  = require('../models/User');
 
-const STYLE_OPTIONS = [
-  { label: '⚡ Punchy & Direct', value: 'Punchy & Direct' },
-  { label: '📖 Storytelling',    value: 'Storytelling'    },
-  { label: '🔬 Analytical',      value: 'Analytical'      },
-  { label: '😄 Conversational',  value: 'Conversational'  },
-];
-const LAYOUT_OPTIONS = [
-  { label: '📝 Short Para',     value: 'Short Para'     },
-  { label: '🏆 Achievement',    value: 'Achievement'    },
-  { label: '🚀 Promote',        value: 'Promote'        },
-  { label: '📅 Daily Progress', value: 'Daily Progress' },
-];
-const TONE_OPTIONS = [
-  { label: '💼 Professional', value: 'Professional' },
-  { label: '😊 Casual',       value: 'Casual'       },
-  { label: '🔥 Motivational', value: 'Motivational' },
-  { label: '😂 Humorous',     value: 'Humorous'     },
-];
-const STYLE_MAP = {
-  'Punchy & Direct': ['Punchy & Direct', 'Storytelling',  'Analytical'     ],
-  'Storytelling':    ['Storytelling',    'Punchy & Direct','Analytical'     ],
-  'Analytical':      ['Analytical',      'Storytelling',   'Punchy & Direct'],
-  'Conversational':  ['Conversational',  'Storytelling',   'Punchy & Direct'],
-};
-
-const LAYOUT_DESCRIPTIONS = `
-*Layout Explanations:*
-• *Short Para:* 2-3 lines of hook, followed by explanation, ending with a Call-to-Action or question. Concise paragraphs.
-• *Achievement:* 2-3 short paragraphs explaining an achievement, followed by details (how-to, importance, context).
-• *Promote:* Highlights a related question/situation, the problem faced, and the solution in short paragraphs.
-• *Daily Progress:* 1-line title, 2-line summary, accomplishments, issues faced, key learnings, ending with a question.
-`;
-
-// Builds a 2-column inline keyboard from an options array.
-// Optionally appends a [🔙 Back] button row if backPrefix is given.
-function buildKeyboard(options, prefix, backPrefix = null) {
-  const rows = [];
-  for (let i = 0; i < options.length; i += 2) {
-    rows.push(options.slice(i, i + 2).map(o => Markup.button.callback(o.label, `${prefix}:${o.value}`)));
-  }
-  if (backPrefix) {
-    rows.push([Markup.button.callback('🔙 Back', `ob_back:${backPrefix}`)]);
-  }
-  return Markup.inlineKeyboard(rows);
-}
-
 // Edits the current message if inside a callback, otherwise sends a fresh reply.
 // Silently swallows "message is not modified" errors.
 async function safeEdit(ctx, text, extra) {
@@ -147,16 +101,12 @@ async function handleUseDefault(ctx) {
       {
         $set: {
           onboardingComplete: true,
-          // Apply default values explicitly in case they differ from schema defaults
-          preferredStyles: ['Conversational', 'Storytelling', 'Punchy & Direct'],
-          preferredLayout: 'Short Para',
-          preferredTone:   'Casual',
         },
       }
     );
     await ctx.editMessageText(
-      '✅ *Default settings applied!*\n\n' +
-      '• Layout: Short Para\n• Style: Conversational, Storytelling, Punchy & Direct\n• Tone: Casual',
+      '✅ *Default profile applied!*\n\n' +
+      'I will fall back to my default Postbot style for generations.',
       { parse_mode: 'Markdown' }
     ).catch(() => {});
     await promptGenerate(ctx);
@@ -181,13 +131,13 @@ async function startSetupPrompt(ctx) {
   );
 
   await ctx.reply(
-    `⚙️ *Let's set your post preferences, ${firstName}!*\n\n` +
-    `Would you like to manually choose your style, or should I analyse a past LinkedIn post to learn your style automatically?`,
+    `⚙️ *Let's define your template, ${firstName}!*\n\n` +
+    `Your posts will strictly follow the layout and vibe of an example post. You can either upload a past post, or describe your desired vibe to me and I'll create a template for you.`,
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🛠 Manual Setup',    'ob_flow:manual' )],
-        [Markup.button.callback('🔍 Analyze Example', 'ob_flow:analyze')],
+        [Markup.button.callback('🔗 Upload Example Post', 'ob_flow:upload')],
+        [Markup.button.callback('🎙️ Describe My Vibe',  'ob_flow:describe')],
       ]),
     }
   );
@@ -250,111 +200,24 @@ async function handleChangePrefs(ctx) {
   }
 }
 
-// Handles [Manual Setup] or [Analyze Example] choice
+// Handles [Upload Example Post] or [Describe My Vibe] choice
 async function handleFlowPick(ctx) {
   await ctx.answerCbQuery();
   const flow       = ctx.match[1];
   const telegramId = String(ctx.from.id);
 
-  if (flow === 'manual') {
-    await startLayoutStep(ctx);
-  } else if (flow === 'analyze') {
-    await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_example' } });
+  if (flow === 'upload') {
+    await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_upload_example' } });
     await safeEdit(ctx,
-      `🔍 *Analyze Example*\n\nPlease paste an example of a LinkedIn post you've written recently, and I will extract your preferred Tone and Style.\n\n_(Send the plain text message now, or send /start to cancel.)_`,
+      `🔗 *Upload Example Post*\n\nPlease paste an example of a LinkedIn post whose structure and vibe you want to use as your master template.\n\n_(Send the text message now, or send /start to cancel.)_`,
       { parse_mode: 'Markdown' }
     );
-  }
-}
-
-// ── Manual Setup Steps ────────────────────────────────────────────────────────
-
-async function startLayoutStep(ctx) {
-  await safeEdit(ctx,
-    `*Step 1 of 3 — Post Layout*\nHow should your posts be structured?\n${LAYOUT_DESCRIPTIONS}`,
-    { parse_mode: 'Markdown', ...buildKeyboard(LAYOUT_OPTIONS, 'ob_layout') }
-  );
-}
-
-async function startStyleStep(ctx) {
-  await safeEdit(ctx,
-    `*Step 2 of 3 — Writing Style*\nHow would you like your posts to be written?`,
-    { parse_mode: 'Markdown', ...buildKeyboard(STYLE_OPTIONS, 'ob_style', 'layout_step') }
-  );
-}
-
-// [🔙 Back] handler — steps back one question without data loss
-async function handleBack(ctx) {
-  await ctx.answerCbQuery();
-  const step = ctx.match[1];
-  if (step === 'layout_step') {
-    await startLayoutStep(ctx);
-  } else if (step === 'style_step') {
-    await startStyleStep(ctx);
-  }
-}
-
-async function handleLayoutPick(ctx) {
-  await ctx.answerCbQuery();
-  const telegramId   = String(ctx.from.id);
-  const chosenLayout = ctx.match[1];
-
-  try {
-    await User.findOneAndUpdate({ telegramId }, { $set: { preferredLayout: chosenLayout } });
-    await startStyleStep(ctx);
-  } catch (err) {
-    console.error('[onboarding] handleLayoutPick:', err);
-    await ctx.reply('😔 Could not save your layout. Please try again.');
-  }
-}
-
-async function handleStylePick(ctx) {
-  await ctx.answerCbQuery();
-  const telegramId  = String(ctx.from.id);
-  const chosenStyle = ctx.match[1];
-  const styles      = STYLE_MAP[chosenStyle] ?? ['Punchy & Direct', 'Storytelling', 'Analytical'];
-
-  try {
-    await User.findOneAndUpdate({ telegramId }, { $set: { preferredStyles: styles } });
+  } else if (flow === 'describe') {
+    await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_describe_vibe' } });
     await safeEdit(ctx,
-      `*Step 3 of 3 — Tone*\nWhat tone should your posts have?`,
-      { parse_mode: 'Markdown', ...buildKeyboard(TONE_OPTIONS, 'ob_tone', 'style_step') }
-    );
-  } catch (err) {
-    console.error('[onboarding] handleStylePick:', err);
-    await ctx.reply('😔 Could not save your style. Please try again.');
-  }
-}
-
-async function handleTonePick(ctx) {
-  await ctx.answerCbQuery();
-  const telegramId = String(ctx.from.id);
-  const tone       = ctx.match[1];
-  const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
-
-  try {
-    const user = await User.findOneAndUpdate(
-      { telegramId },
-      {
-        $set: {
-          preferredTone:      tone,
-          onboardingComplete: true,
-          inputState:         'idle',
-        },
-      },
-      { new: true }
-    );
-    if (!user) return ctx.reply('⚠️ Account not found. Send /start.');
-
-    await safeEdit(ctx,
-      `✅ *Manual Setup Complete, ${firstName}!*\n\n` +
-      `Your preferences:\n• Layout: ${user.preferredLayout}\n• Style: ${user.preferredStyles.join(', ')}\n• Tone: ${tone}\n`,
+      `🎙️ *Describe My Vibe*\n\nSend a text description or a voice note explaining how you want your posts to look and sound (e.g., "Use bullet points, sound professional, tell a story"). I'll generate a dummy post to serve as your template.\n\n_(Send your description now, or send /start to cancel.)_`,
       { parse_mode: 'Markdown' }
     );
-    await promptGenerate(ctx);
-  } catch (err) {
-    console.error('[onboarding] handleTonePick:', err);
-    await ctx.reply('😔 Database error. Please try /setstyle again.');
   }
 }
 
@@ -362,10 +225,6 @@ module.exports = {
   handleStart,
   handleChangePrefs,
   handleFlowPick,
-  handleLayoutPick,
-  handleStylePick,
-  handleTonePick,
-  handleBack,
   handleUseDefault,
   promptGenerate,
   startSetupPrompt,

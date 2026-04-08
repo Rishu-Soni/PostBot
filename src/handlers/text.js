@@ -1,8 +1,9 @@
 'use strict';
 
 const User = require('../models/User');
-const { revisePosts, extractPreferences } = require('../services/gemini');
+const { revisePosts, generateDummyPost } = require('../services/gemini');
 const { sendPostMessages, MODIFY_MARKER } = require('./voice');
+const { escapeMarkdownV2 } = require('../utils/formatters');
 
 /**
  * Extracts the original post text from a ForceReply message.
@@ -21,46 +22,62 @@ async function handleText(ctx) {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  // ── Smart Onboarding: Example Analysis ─────────────────────────────────────
-  if (user?.inputState === 'awaiting_example') {
+  // ── Smart Onboarding: Upload Example ───────────────────────────────────────
+  if (user?.inputState === 'awaiting_upload_example') {
     if (text.length < 80) {
       return ctx.reply(
-        '⚠️ That post is too short to analyze accurately.\n\n' +
-        'Please paste a *full LinkedIn post* (at least a few sentences) so I can learn your writing style.',
+        '⚠️ That post is too short to be a good template.\n\n' +
+        'Please paste a *full LinkedIn post* that accurately reflects your desired layout and vibe.',
         { parse_mode: 'Markdown' }
       );
     }
-    const thinkingMsg = await ctx.reply('🔍 Analyzing your post format, style, and tone...');
+
     try {
-      // Pin the message so the bot can reference the layout in future generations
       await ctx.pinChatMessage(ctx.message.message_id, { disable_notification: true }).catch(() => {});
 
-      const prefs = await extractPreferences(text);
-
-      user.preferredTone    = prefs.preferredTone    || 'Professional';
-      user.preferredStyles  = prefs.preferredStyles?.length ? prefs.preferredStyles : ['Punchy & Direct'];
-      user.preferredLayout  = 'Short Para'; // Default label; actual layout driven by the pinned message dynamically
-      user.inputState       = 'idle';
+      user.inputState = 'idle';
       user.onboardingComplete = true;
       await user.save();
 
-      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
       await ctx.reply(
-        `✅ *Analysis Complete!*\n\n` +
-        `Here is what I learned about your writing style:\n` +
-        `• *Tone:* ${user.preferredTone}\n` +
-        `• *Style:* ${user.preferredStyles.join(', ')}\n\n` +
-        `I have pinned your example post. I will strictly use its layout for future posts.\n` +
-        `_(If the pinned message is removed, I will fall back to the Short Para default layout.)_\n\n` +
-        `🎙 Send a *voice note* now to get started!`,
+        `✅ *Style locked in and pinned to the top of this chat!*\n\n` +
+        `I will use this exact post as a blueprint for all future posts.\n\n` +
+        `💡 *Pro Tip:* Don't like a specific word or emoji in the template? Just use Telegram's native 'Edit' feature to change the pinned message. I will always read the latest version!\n\n` +
+        `🎙 Send a *voice note* now to get started.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
-      console.error('[text] Error analyzing example:', err);
+      console.error('[text] Error pinning upload example:', err);
+      await ctx.reply('😔 Could not pin the message. Make sure I have admin rights to pin!');
+    }
+    return;
+  }
+
+  // ── Smart Onboarding: Describe Vibe (Text) ─────────────────────────────────
+  if (user?.inputState === 'awaiting_describe_vibe') {
+    const thinkingMsg = await ctx.reply('✍️ Generating your dummy template post based on your vibe...');
+    try {
+      const dummyPost = await generateDummyPost(text, false);
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+
+      const sentMsg = await ctx.reply(escapeMarkdownV2(dummyPost), { parse_mode: 'MarkdownV2' });
+      await ctx.pinChatMessage(sentMsg.message_id, { disable_notification: true }).catch(() => {});
+
+      user.inputState = 'idle';
+      user.onboardingComplete = true;
+      await user.save();
+
       await ctx.reply(
-        '😔 I had trouble analyzing that text. Please try again or use /setstyle for manual setup.'
+        `✅ *Style locked in and pinned to the top of this chat!*\n\n` +
+        `I will use this exact post as a blueprint for all future posts.\n\n` +
+        `💡 *Pro Tip:* Don't like a specific word or emoji in the template? Just use Telegram's native 'Edit' feature to change the pinned message. I will always read the latest version!\n\n` +
+        `🎙 Send a *voice note* now to get started.`,
+        { parse_mode: 'Markdown' }
       );
+    } catch (err) {
+      console.error('[text] Error handling vibe description:', err);
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      await ctx.reply('😔 Something went wrong generating your dummy post. Please try again or use /setstyle.');
     }
     return;
   }
