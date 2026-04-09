@@ -37,34 +37,55 @@ const app = express();
 const seenMediaGroups = new Map();
 
 // DB connection caching (serverless-friendly)
+// serverSelectionTimeoutMS: fail fast (8 s) so Vercel lambdas don't hang for 30 s on Atlas errors.
+// socketTimeoutMS: keep sockets alive for long-running Gemini/LinkedIn operations.
+// family: 4 forces IPv4 — avoids dual-stack DNS issues inside Vercel's network.
 async function connectDB() {
   if (mongoose.connection.readyState === 1) return;
-  await mongoose.connect(process.env.MONGODB_URI, { bufferCommands: false });
+  if (mongoose.connection.readyState === 2) {
+    // Already connecting — wait for the existing attempt rather than opening a second one.
+    await new Promise((resolve, reject) => {
+      mongoose.connection.once('connected', resolve);
+      mongoose.connection.once('error',     reject);
+    });
+    return;
+  }
+  await mongoose.connect(process.env.MONGODB_URI, {
+    bufferCommands:            false,
+    serverSelectionTimeoutMS:  8_000,   // give up quickly if Atlas is unreachable
+    socketTimeoutMS:           45_000,  // keep sockets alive for long Gemini calls
+    connectTimeoutMS:          10_000,
+    family:                    4,       // force IPv4 to avoid Vercel IPv6 issues
+  });
   console.log('[DB] Connected to MongoDB');
 }
 
 app.use(express.json());
 
-// ── Express Routes ─────────────────────────────────────────────────────────────
-
-app.post(WEBHOOK_PATH, (req, res) => {
+// ── Webhook handler ────────────────────────────────────────────────────────────
+// IMPORTANT — Vercel serverless freezes the lambda the moment res.send() fires.
+// Any "fire-and-forget" async work launched AFTER res.send() is killed mid-flight,
+// which is why you see ECONNRESET errors on Telegram API calls.
+//
+// Fix: do ALL async work synchronously (awaited) and only send 200 when done.
+// Telegram tolerates responses up to ~5 s; for longer operations (Gemini voice notes)
+// this still works because Telegram retries are idempotent on this bot.
+// maxDuration in vercel.json is set to 60 s, giving plenty of headroom.
+app.post(WEBHOOK_PATH, async (req, res) => {
   if (WEBHOOK_SECRET && req.headers['x-telegram-bot-api-secret-token'] !== WEBHOOK_SECRET) {
     return res.status(403).send('Forbidden');
   }
 
-  // 1. Immediately acknowledge Telegram to explicitly prevent webhook retry spam & duplicate APIs.
-  res.status(200).send('OK');
+  try {
+    await connectDB();
+    await bot.handleUpdate(req.body);
+  } catch (err) {
+    // Log the full error but always return 200 so Telegram does not retry endlessly.
+    console.error('[Webhook] Error:', err);
+  }
 
-  // 2. Safely proxy the update asynchronously in the background to avoid blocking the webhook.
-  // Note: Vercel might freeze background execution if not strictly controlled; ensure container remains hot.
-  (async () => {
-    try {
-      await connectDB();
-      await bot.handleUpdate(req.body);
-    } catch (err) {
-      console.error('[Webhook Background Engine] Error:', err);
-    }
-  })();
+  // Respond AFTER all processing is done — lambda stays alive for the full duration.
+  return res.status(200).send('OK');
 });
 
 app.get('/setup', async (req, res) => {
