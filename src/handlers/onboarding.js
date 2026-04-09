@@ -209,11 +209,20 @@ async function handleChangePrefs(ctx) {
  *
  * ob_flow:manual   → user will type their vibe in text; Gemini generates a dummy post → pinned.
  * ob_flow:example  → user will paste an existing LinkedIn post → pinned directly.
+ *
+ * Backward-compat aliases (stale buttons from pre-rename deployment):
+ *   ob_flow:describe → treated as 'manual'
+ *   ob_flow:upload   → treated as 'example'
  */
 async function handleFlowPick(ctx) {
   await ctx.answerCbQuery();
-  const flow       = ctx.match[1];
+  const raw        = ctx.match[1];
   const telegramId = String(ctx.from.id);
+
+  // Normalise old callback data values to new ones.
+  const flow = raw === 'describe' ? 'manual'
+             : raw === 'upload'   ? 'example'
+             : raw;
 
   if (flow === 'manual') {
     await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_describe_vibe' } });
@@ -234,6 +243,10 @@ async function handleFlowPick(ctx) {
       `_(Send the post text now, or use /setstyle to go back.)_`,
       { parse_mode: 'Markdown' }
     );
+  } else {
+    // Unknown/stale callback — send a fresh /setstyle prompt.
+    console.warn(`[onboarding] Unknown ob_flow value: "${raw}". Redirecting to setup prompt.`);
+    await startSetupPrompt(ctx);
   }
 }
 
