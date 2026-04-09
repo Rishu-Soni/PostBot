@@ -35,17 +35,23 @@ async function callGemini(payload, maxRetries = 3) {
       if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
       return text;
     } catch (err) {
-      const status = err.status || err.response?.status || err.code;
+      const errStr = String(err.status || err.message || err.toString());
+      const is503 = errStr.includes('503') || errStr.includes('UNAVAILABLE');
+      const is429 = errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota');
+      const is500 = errStr.includes('500') || errStr.includes('INTERNAL');
+
       // 503: Service Unavailable (High Demand), 429: Rate Limit, 500: Internal Error
-      if ([503, 429, 500].includes(status) && attempt < maxRetries - 1) {
+      if ((is503 || is429 || is500) && attempt < maxRetries - 1) {
         attempt++;
         const backoffMs = attempt * 2000; // 2s, 4s...
-        console.warn(`[Gemini] API error ${status}. Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
+        console.warn(`[Gemini] Transient error detected (${is503 ? '503' : is429 ? '429' : '500'}). Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
       // If we exhaust retries or the error is unrecoverable, throw friendly message
-      if (status === 503) err.message = 'The AI model is currently experiencing extremely high demand. Please try again in a minute.';
+      if (is503) {
+        throw new Error('The AI model is currently experiencing extremely high demand. Please wait a moment and try again.');
+      }
       throw err;
     } finally {
       clearTimeout(timer);
