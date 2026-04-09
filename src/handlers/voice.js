@@ -30,11 +30,12 @@ What is the 1 task anchoring your day today?
 #productivity #focus #careergrowth #timemanagement #founder`;
 
 /**
- * Marker embedded in the bot's ForceReply message after "✏️ Modify this".
- * When the user replies (text or voice), we find this marker to re-extract
- * the original post text — no DB state required.
+ * Marker appended to the END of the ForceReply message by handleActionModify.
+ * Invisible to the user but preserved by Telegram's API (\u2060 = Word Joiner,
+ * a non-printable, non-strippable Unicode character).
+ * Extraction uses lastIndexOf + slice(0, idx) so we take text BEFORE the marker.
  */
-const MODIFY_MARKER = '✏️ Reply with what you\'d like to change:\n\n---\n';
+const MODIFY_MARKER = '\n\n\u2060POSTBOT_MARKER\u2060\n';
 
 /**
  * Strips the "📝 Option X of 3\n\n" header from a post message to get clean post text.
@@ -57,11 +58,11 @@ async function sendPostMessages(ctx, posts, usingDefaultStyle = false) {
 
   const keyboard = Markup.inlineKeyboard([
     [
-      Markup.button.callback('✅ Post this',   'action_post'),
-      Markup.button.callback('✏️ Modify this', 'action_modify'),
+      Markup.button.callback('🚀 Publish to LinkedIn',   'action_post'),
+      Markup.button.callback('✏️ Refine', 'action_modify'),
     ],
     [
-      Markup.button.callback('📸 Attach Media & Post', 'action_attach_media'),
+      Markup.button.callback('📸 Add Media', 'action_attach_media'),
     ],
   ]);
 
@@ -86,12 +87,12 @@ async function handleVoice(ctx) {
   const telegramId = String(ctx.from.id);
   const voice      = ctx.message.voice;
 
-  // Check if this voice note is a reply to a "✏️ Modify this" ForceReply prompt.
-  // If so, extract the original post text embedded after MODIFY_MARKER.
+  // Check if this voice note is a reply to a "✏️ Refine" ForceReply prompt.
+  // Marker is appended at the END of the message; we slice everything BEFORE it.
   const replyText = ctx.message.reply_to_message?.text ?? '';
-  const modifyIdx = replyText.indexOf(MODIFY_MARKER);
+  const modifyIdx = replyText.lastIndexOf(MODIFY_MARKER);
   const originalPostText = modifyIdx !== -1
-    ? replyText.slice(modifyIdx + MODIFY_MARKER.length).trim()
+    ? replyText.slice(0, modifyIdx).trim()
     : null;
 
   const user = await User.findOne({ telegramId });
@@ -139,10 +140,10 @@ async function handleVoice(ctx) {
   }
 
   if (!user || !user.onboardingComplete) {
-    return ctx.reply('⚠️ Please set up your preferences first. Send /start to begin.');
+    return ctx.reply('⚠️ Please set up your preferences first by running /setstyle.');
   }
 
-  if (voice.duration > 150 || (voice.file_size && voice.file_size > 10485760)) {
+  if (voice.duration > 120 || (voice.file_size && voice.file_size > 10485760)) {
     return ctx.reply('⚠️ Your voice note is too long! Please keep it under 2 minutes so I can process it quickly.');
   }
 
@@ -199,9 +200,6 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       : null;
 
     const postStrings = await generatePosts(audioBuffer, {
-      styles:       user.preferredStyles?.length ? user.preferredStyles : ['Punchy & Direct'],
-      layout:       user.preferredLayout  || 'Short Para',
-      tone:         user.preferredTone    || 'Professional',
       layoutExample,
     }, refinementHint);
 

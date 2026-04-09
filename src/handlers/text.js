@@ -9,10 +9,15 @@ const { escapeMarkdownV2 } = require('../utils/formatters');
  * Extracts the original post text from a ForceReply message.
  * The bot embeds it after MODIFY_MARKER when the user clicks "✏️ Modify this".
  */
+/**
+ * R-01: Uses lastIndexOf so we handle any edge-case where the marker appears
+ * more than once. Slices everything BEFORE the marker — the post text now comes
+ * first, marker is appended at the end by handleActionModify.
+ */
 function extractOriginalPost(replyText) {
-  const idx = replyText.indexOf(MODIFY_MARKER);
+  const idx = replyText.lastIndexOf(MODIFY_MARKER);
   if (idx === -1) return null;
-  return replyText.slice(idx + MODIFY_MARKER.length).trim();
+  return replyText.slice(0, idx).trim();
 }
 
 async function handleText(ctx) {
@@ -32,9 +37,23 @@ async function handleText(ctx) {
       );
     }
 
+    // V-04: Separate the pin call from the rest so we can inspect the error.
     try {
-      await ctx.pinChatMessage(ctx.message.message_id, { disable_notification: true }).catch(() => {});
+      await ctx.pinChatMessage(ctx.message.message_id, { disable_notification: true });
+    } catch (pinErr) {
+      const desc = pinErr?.description ?? pinErr?.message ?? '';
+      if (desc.includes('not enough rights')) {
+        return ctx.reply(
+          '⚠️ I need the *"Pin Messages"* admin permission to save your style template.\n\n' +
+          'Please grant me that permission in the chat settings and send your example post again.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+      // Non-fatal error (e.g. already pinned): log and continue.
+      console.warn('[text] pinChatMessage non-fatal error:', desc);
+    }
 
+    try {
       user.inputState = 'idle';
       user.onboardingComplete = true;
       await user.save();
@@ -47,8 +66,8 @@ async function handleText(ctx) {
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
-      console.error('[text] Error pinning upload example:', err);
-      await ctx.reply('😔 Could not pin the message. Make sure I have admin rights to pin!');
+      console.error('[text] Error saving user after pin:', err);
+      await ctx.reply('😔 Something went wrong saving your settings. Please try again.');
     }
     return;
   }
@@ -103,7 +122,15 @@ async function handleText(ctx) {
  * The 3 new variations are sent as separate messages — no DB writes needed.
  */
 async function handleRevise(ctx, originalPost, instructions) {
-  const sanitised   = instructions.slice(0, 500).replace(/[`\\"]/g, "'");
+  const sanitised = instructions.slice(0, 500).replace(/[`\\"]/g, "'");
+
+  // V-03: Reject instructions that are too brief to be meaningful.
+  if (sanitised.length < 5) {
+    return ctx.reply(
+      '⚠️ That instruction is too brief. Please describe in a little more detail how you want the post changed (at least 5 characters).'
+    );
+  }
+
   const thinkingMsg = await ctx.reply('✍️ Revising with Gemini… give me a moment.');
 
   try {

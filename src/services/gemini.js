@@ -37,7 +37,7 @@ async function callGemini(payload) {
   }
 }
 
-async function generatePosts(audioBuffer, { styles, layout, tone, layoutExample }, refinementHint = null) {
+async function generatePosts(audioBuffer, { layoutExample }, refinementHint = null) {
   let systemInstruction;
 
   if (refinementHint) {

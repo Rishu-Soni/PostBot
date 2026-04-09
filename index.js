@@ -32,6 +32,10 @@ const User = require('./src/models/User');
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
 
+// R-02 + R-03: Declared at module scope (survives across warm serverless invocations).
+// Map<groupId, timestamp> instead of a Set — enables lazy GC without setTimeout.
+const seenMediaGroups = new Map();
+
 // DB connection caching (serverless-friendly)
 async function connectDB() {
   if (mongoose.connection.readyState === 1) return;
@@ -71,7 +75,7 @@ app.get('/setup', async (req, res) => {
     await bot.telegram.setMyCommands([
       { command: 'start', description: 'Launch Postbot setup' },
       { command: 'generate', description: 'Start generating a post' },
-      { command: 'setstyle', description: 'Set preferred post style' },
+      { command: 'setstyle', description: 'Set master template' },
       { command: 'connect', description: 'Link your LinkedIn account' },
       { command: 'settings', description: 'View & update your preferences' },
       { command: 'deldata', description: 'Delete your data completely' },
@@ -117,21 +121,34 @@ app.get('/auth/linkedin/callback', async (req, res) => {
     );
 
     if (user && user.pendingPostText) {
+      // V-02: $unset already ran — this is the LAST copy of the pending text.
+      // Send it as a plain-text draft FIRST so the content is guaranteed recoverable
+      // even if the subsequent action-button message fails.
       await bot.telegram.sendMessage(
         telegramId,
-        `✅ Welcome back! Your LinkedIn account is reconnected.\n\nHere is your pending post:\n\n${user.pendingPostText}`,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback('✅ Post this',   'action_post'),
-            Markup.button.callback('✏️ Modify this', 'action_modify'),
-          ],
-          [Markup.button.callback('📸 Attach Media & Post', 'action_attach_media')]
-        ])
+        `📋 *Your pending post (draft copy):*\n\n${user.pendingPostText}`,
+        { parse_mode: 'Markdown' }
+      ).catch(e => console.error('[OAuth] Failed to send pending post draft:', e.message));
+
+      // Now send the actionable buttons for a one-tap re-publish.
+      await bot.telegram.sendMessage(
+        telegramId,
+        '✅ *LinkedIn reconnected!*\n\nYour pending post has been restored above\. Tap *🚀 Publish to LinkedIn* to post it, or copy the draft text to save it\.',
+        {
+          parse_mode: 'MarkdownV2',
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback('🚀 Publish to LinkedIn', 'action_post'),
+              Markup.button.callback('✏️ Refine', 'action_modify'),
+            ],
+            [Markup.button.callback('📸 Add Media', 'action_attach_media')],
+          ]),
+        }
       );
     } else {
       await bot.telegram.sendMessage(
         telegramId,
-        'Account connected successfully! Please click \'✅ Post this\' on your preferred post above to publish it.'
+        "✅ LinkedIn connected! You're all set — click '🚀 Publish to LinkedIn' on any generated post to publish it."
       );
     }
 
@@ -227,10 +244,10 @@ bot.command('help', (ctx) => ctx.reply(
   '🎛️ Commands:\n' +
   '/start - Kick off smart onboarding to extract your unique writing style.\n' +
   '/generate - Record a voice note and let me generate your next post.\n' +
-  '/setstyle - Manually customize your preferred layouts, tone, and formatting.\n' +
+  '/setstyle - Set your master template by uploading an example or describing your vibe.\n' +
   '/connect - Securely link your LinkedIn account for instant publishing.\n' +
   '/settings - View your current configuration and brand guidelines.\n' +
-  '/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your preferred styles, layout, tone, LinkedIn credentials, and all generation history, keeping only your Telegram ID and Name.\n' +
+  '/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your LinkedIn credentials and all generation history, keeping only your Telegram ID and Name.\n' +
   '/help - Display this quick guide to all available commands.'
 ));
 
@@ -246,11 +263,13 @@ bot.command('deldata', async (ctx) => {
       return ctx.reply('ℹ️ No account found to delete. Send /start to create one.');
     }
 
+    // R-04: preferredStyles / preferredLayout / preferredTone are NOT in the User
+    // schema (legacy stateful architecture). Including them in $unset is dead code
+    // and could mask real schema drift. Removed.
     await User.updateOne(
       { telegramId },
       {
         $unset: {
-          preferredStyles: '', preferredLayout: '', preferredTone: '',
           onboardingComplete: '', linkedinAccessToken: '', linkedinRefreshToken: '',
           linkedinTokenExpiry: '', inputState: '', pendingPostText: '',
           pendingMediaIds: '', mediaDoneMessageId: '',
@@ -300,11 +319,16 @@ bot.action('cancel_media',    async (ctx) => { return handleActionCancelMedia(ct
 bot.on('voice',         async (ctx) => { return handleVoice(ctx); });
 bot.on('text',          async (ctx) => { return handleText(ctx); });
 
+// R-02 + R-03: seenMediaGroups is now declared at module scope (Map, above).
+// The handler uses lazy GC to purge stale entries instead of setTimeout,
+// which is unsafe in serverless environments (timer fires in a frozen container).
+const MEDIA_GROUP_TTL = 60_000; // ms
+
 bot.on(['photo', 'video'], async (ctx) => {
   const telegramId = String(ctx.from.id);
   const user = await User.findOne({ telegramId });
 
-  // Only accept media after the user has clicked "📸 Attach Media & Post" on a generated post
+  // Only accept media after the user has clicked "📸 Add Media" on a generated post
   if (user && user.inputState === 'awaiting_media_upload') {
     let fileId;
     if (ctx.message.photo) {
@@ -314,15 +338,33 @@ bot.on(['photo', 'video'], async (ctx) => {
     }
 
     if (fileId) {
-      // Remove the previous "Done" prompt so the chat stays clean
+      user.pendingMediaIds.push(fileId);
+
+      // R-02 + R-03: Lazy GC — purge any entries older than TTL before checking.
+      const now = Date.now();
+      const groupId = ctx.message.media_group_id;
+      if (groupId) {
+        for (const [id, ts] of seenMediaGroups) {
+          if (now - ts > MEDIA_GROUP_TTL) seenMediaGroups.delete(id);
+        }
+        if (seenMediaGroups.has(groupId)) {
+          // Duplicate frame in same media group — just persist the extra fileId.
+          // V-01: Re-fetch to guard against a concurrent command reset.
+          const freshUser = await User.findOne({ telegramId });
+          if (!freshUser || freshUser.inputState !== 'awaiting_media_upload') return;
+          await user.save();
+          return;
+        }
+        seenMediaGroups.set(groupId, now);
+      }
+
+      // Remove the previous "Done" prompt so the chat stays clean.
       if (user.mediaDoneMessageId) {
         await ctx.telegram.deleteMessage(ctx.chat.id, user.mediaDoneMessageId).catch(() => {});
       }
 
-      user.pendingMediaIds.push(fileId);
-
       const doneMsg = await ctx.reply(
-        `✅ Media attached (${user.pendingMediaIds.length} total). Send another, or click Done to post.`,
+        `✅ Media attached. Send another, or click Done to post.`,
         {
           reply_to_message_id: ctx.message.message_id,
           ...Markup.inlineKeyboard([
@@ -333,6 +375,13 @@ bot.on(['photo', 'video'], async (ctx) => {
       );
 
       user.mediaDoneMessageId = doneMsg.message_id;
+
+      // V-01: Re-fetch immediately before save to detect a race condition where
+      // the global command interceptor reset inputState between our initial read
+      // and now. If state changed, silently abort — the interceptor already cleaned up.
+      const freshUser = await User.findOne({ telegramId });
+      if (!freshUser || freshUser.inputState !== 'awaiting_media_upload') return;
+
       await user.save();
       return;
     }

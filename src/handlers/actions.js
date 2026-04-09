@@ -64,8 +64,11 @@ async function handleActionModify(ctx) {
     return ctx.reply('⚠️ Could not read the post text. Please try generating again.');
   }
 
+  // R-01: Marker is appended AFTER the post text so that extractOriginalPost
+  // (which slices everything BEFORE the last occurrence of the marker) can
+  // cleanly recover the original post when the user replies.
   await ctx.reply(
-    `${MODIFY_MARKER}${postText}`,
+    `${postText}${MODIFY_MARKER}`,
     Markup.forceReply()
   );
 }
@@ -136,11 +139,11 @@ async function handleActionCancelMedia(ctx) {
       parse_mode: 'MarkdownV2',
       ...Markup.inlineKeyboard([
         [
-          Markup.button.callback('✅ Post this',   'action_post'),
-          Markup.button.callback('✏️ Modify this', 'action_modify'),
+          Markup.button.callback('🚀 Publish to LinkedIn',   'action_post'),
+          Markup.button.callback('✏️ Refine', 'action_modify'),
         ],
         [
-          Markup.button.callback('📸 Attach Media & Post', 'action_attach_media'),
+          Markup.button.callback('📸 Add Media', 'action_attach_media'),
         ],
       ]),
     }

@@ -170,10 +170,10 @@ async function handleStart(ctx) {
       `🎛️ Commands:\n` +
       `/start - Kick off smart onboarding to extract your unique writing style.\n` +
       `/generate - Record a voice note and let me generate your next post.\n` +
-      `/setstyle - Manually customize your preferred layouts, tone, and formatting.\n` +
+      `/setstyle - Set your master template by uploading an example or describing your vibe.\n` +
       `/connect - Securely link your LinkedIn account for instant publishing.\n` +
       `/settings - View your current configuration and brand guidelines.\n` +
-      `/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your preferred styles, layout, tone, LinkedIn credentials, and all generation history, keeping only your Telegram ID and Name.\n` +
+      `/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your LinkedIn credentials and all generation history, keeping only your Telegram ID and Name.\n` +
       `/help - Display this quick guide to all available commands.`;
 
     await ctx.reply(introText);

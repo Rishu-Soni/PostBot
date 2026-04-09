@@ -8,9 +8,7 @@ const UserSchema = new mongoose.Schema(
     firstName: { type: String, default: '' },
 
     // Post preferences
-    preferredStyles: { type: [String], default: ['Conversational', 'Storytelling', 'Punchy & Direct'] },
-    preferredLayout: { type: String, default: 'Short Para' },
-    preferredTone: { type: String, default: 'Casual' },
+    // (Legacy preferences removed: now fully reliant on Telegram pinned message exemplar)
 
     // Onboarding state
     onboardingComplete: { type: Boolean, default: false },
