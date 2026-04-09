@@ -118,7 +118,9 @@ async function handleUseDefault(ctx) {
 
 /**
  * Master entry point for /start and /setstyle.
- * Resets onboarding state and presents the Manual vs Analyze choice.
+ * Presents the two style-setup paths:
+ *   [Manual Setup]       → user types their vibe; Gemini generates a dummy post and pins it.
+ *   [Provide Example Post] → user pastes a real post; bot pins it directly.
  */
 async function startSetupPrompt(ctx) {
   const firstName  = (ctx.from.first_name || 'there').replace(/[_*[\]`]/g, '');
@@ -131,13 +133,15 @@ async function startSetupPrompt(ctx) {
   );
 
   await ctx.reply(
-    `⚙️ *Let's define your template, ${firstName}!*\n\n` +
-    `Your posts will strictly follow the layout and vibe of an example post. You can either upload a past post, or describe your desired vibe to me and I'll create a template for you.`,
+    `⚙️ *Let's define your style template, ${firstName}!*\n\n` +
+    `Choose how you want to set it up:\n\n` +
+    `• *Manual Setup* — Describe your preferred vibe, tone, and layout in text. I'll generate a dummy post that perfectly captures it and pin it as your template.\n\n` +
+    `• *Provide Example Post* — Paste a real LinkedIn post you love. I'll pin it directly as your style blueprint.`,
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('🔗 Upload Example Post', 'ob_flow:upload')],
-        [Markup.button.callback('🎙️ Describe My Vibe',  'ob_flow:describe')],
+        [Markup.button.callback('🛠 Manual Setup',          'ob_flow:manual' )],
+        [Markup.button.callback('📋 Provide Example Post', 'ob_flow:example')],
       ]),
     }
   );
@@ -170,7 +174,7 @@ async function handleStart(ctx) {
       `🎛️ Commands:\n` +
       `/start - Kick off smart onboarding to extract your unique writing style.\n` +
       `/generate - Record a voice note and let me generate your next post.\n` +
-      `/setstyle - Set your master template by uploading an example or describing your vibe.\n` +
+      `/setstyle - Set your master template by providing an example post or describing your vibe.\n` +
       `/connect - Securely link your LinkedIn account for instant publishing.\n` +
       `/settings - View your current configuration and brand guidelines.\n` +
       `/deldata - 🔒 SECURITY: Run this command to permanently clear all your data from the database. This deletes your LinkedIn credentials and all generation history, keeping only your Telegram ID and Name.\n` +
@@ -200,22 +204,34 @@ async function handleChangePrefs(ctx) {
   }
 }
 
-// Handles [Upload Example Post] or [Describe My Vibe] choice
+/**
+ * Handles [Manual Setup] or [Provide Example Post] inline button presses.
+ *
+ * ob_flow:manual   → user will type their vibe in text; Gemini generates a dummy post → pinned.
+ * ob_flow:example  → user will paste an existing LinkedIn post → pinned directly.
+ */
 async function handleFlowPick(ctx) {
   await ctx.answerCbQuery();
   const flow       = ctx.match[1];
   const telegramId = String(ctx.from.id);
 
-  if (flow === 'upload') {
-    await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_upload_example' } });
-    await safeEdit(ctx,
-      `🔗 *Upload Example Post*\n\nPlease paste an example of a LinkedIn post whose structure and vibe you want to use as your master template.\n\n_(Send the text message now, or send /start to cancel.)_`,
-      { parse_mode: 'Markdown' }
-    );
-  } else if (flow === 'describe') {
+  if (flow === 'manual') {
     await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_describe_vibe' } });
     await safeEdit(ctx,
-      `🎙️ *Describe My Vibe*\n\nSend a text description or a voice note explaining how you want your posts to look and sound (e.g., "Use bullet points, sound professional, tell a story"). I'll generate a dummy post to serve as your template.\n\n_(Send your description now, or send /start to cancel.)_`,
+      `🛠 *Manual Setup*\n\n` +
+      `Describe your preferred posting style in detail — mention your tone, layout, emoji usage, paragraph structure, and anything else that defines your vibe.\n\n` +
+      `_Example: "Professional but warm tone, lots of white space, short punchy sentences, 3 bullet points, minimal emojis, always end with a question."_\n\n` +
+      `I'll generate a dummy template post that perfectly captures your style and pin it to the top of this chat.\n\n` +
+      `_(Type your description and send it, or use /setstyle to go back.)_`,
+      { parse_mode: 'Markdown' }
+    );
+  } else if (flow === 'example') {
+    await User.findOneAndUpdate({ telegramId }, { $set: { inputState: 'awaiting_upload_example' } });
+    await safeEdit(ctx,
+      `📋 *Provide Example Post*\n\n` +
+      `Paste a real LinkedIn post that represents your ideal writing style. I'll pin it directly to this chat and use it as the blueprint for all your future posts.\n\n` +
+      `💡 *Pro Tip:* This works best with a post that has the exact layout, tone, and emoji style you want to replicate.\n\n` +
+      `_(Send the post text now, or use /setstyle to go back.)_`,
       { parse_mode: 'Markdown' }
     );
   }

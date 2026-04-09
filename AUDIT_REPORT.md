@@ -48,6 +48,14 @@
 *   **LinkedIn Media Validation Hard Cap:** Pending attachments lacked bounds validation before initiating `fetch()` and `put()` uploads to LinkedIn. LinkedIn endpoints natively block items traversing >9 elements per post.
     *   *Fix:* Bound array limits structurally at length cap `pendingMediaIds.slice(0, 9)`.
 
+### Security Regressions & Vulnerabilities (R-01-R-04, V-01-V-04)
+*   **Marker Hijacking (R-01):** Replaced legacy visible markers with an invisible Unicode word joiner (`\u2060POSTBOT_MARKER\u2060`) appended to the end of ForceReply messages.
+*   **Memory Leaks and Media Groups (R-02, R-03, V-01):** Used a module-scoped `Map` for `seenMediaGroups` with Lazy GC to prevent memory leaks in serverless cold environments. Added pre-save DB state verification to prevent concurrent command wipe race conditions.
+*   **Audit Trails & Deprecated Fields (R-04):** Prevented `$unset` from attempting to remove un-tracked legacy schemas (`preferredStyles`, `preferredLayout`, `preferredTone`) which could mask real schema drift, while safely preserving `countDelData`.
+*   **Telegram MarkdownV2 Parsing (V-03):** Implemented a rigorous `escapeMarkdownV2` sanitizer to prevent unescaped user content crashing API delivery.
+*   **OAuth Edge Case / Auth Recovery (V-02, V-04):** Handled LinkedIn reconnection flows properly, injecting a bare-text markdown recovery message to ensure `pendingPostText` survives even if inline keyboard actions error out.
+*   **Content Firewall Setup:** Established a rigorous structure enforcing prompt definitions separating Exemplar logic from factual extraction, stopping AI hallucination cross-contamination securely.
+
 ---
 
 ## ⚡ Architecture Shift: Transitioning from Carousel to Multi-Message

@@ -97,9 +97,10 @@ async function handleVoice(ctx) {
 
   const user = await User.findOne({ telegramId });
 
-  // ── Smart Onboarding: Describe Vibe (Voice) ────────────────────────────────
+  // ── Setstyle: Manual Setup (Voice) ────────────────────────────────────────
+  // User described their vibe via voice note — generate a dummy post, then pin it.
   if (user?.inputState === 'awaiting_describe_vibe') {
-    const thinkingMsg = await ctx.reply('✍️ Generating your dummy template post based on your voice vibe...');
+    const thinkingMsg = await ctx.reply('✍️ Generating your template post based on your voice description...');
     try {
       const fileLink    = await ctx.telegram.getFileLink(voice.file_id);
       const audioResp   = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
@@ -109,23 +110,37 @@ async function handleVoice(ctx) {
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
 
       const sentMsg = await ctx.reply(escapeMarkdownV2(dummyPost), { parse_mode: 'MarkdownV2' });
-      await ctx.pinChatMessage(sentMsg.message_id, { disable_notification: true }).catch(() => {});
+
+      // Pin the generated template; handle permission errors gracefully.
+      try {
+        await ctx.pinChatMessage(sentMsg.message_id, { disable_notification: true });
+      } catch (pinErr) {
+        const desc = pinErr?.description ?? pinErr?.message ?? '';
+        if (desc.includes('not enough rights')) {
+          return ctx.reply(
+            '⚠️ I need the *"Pin Messages"* admin permission to save your style template.\n\n' +
+            'Please grant me that permission in the chat settings and then run /setstyle again.',
+            { parse_mode: 'Markdown' }
+          );
+        }
+        console.warn('[voice] pinChatMessage non-fatal error:', desc);
+      }
 
       user.inputState = 'idle';
       user.onboardingComplete = true;
       await user.save();
 
       await ctx.reply(
-        `✅ *Style locked in and pinned to the top of this chat!*\n\n` +
-        `I will use this exact post as a blueprint for all future posts.\n\n` +
-        `💡 *Pro Tip:* Don't like a specific word or emoji in the template? Just use Telegram's native 'Edit' feature to change the pinned message. I will always read the latest version!\n\n` +
-        `🎙 Send a *voice note* now to get started.`,
+        `✅ *Style template generated and pinned!*\n\n` +
+        `I'll use this post as the structural blueprint for every future generation — mirroring its layout, tone, and emoji style exactly.\n\n` +
+        `💡 *Pro Tip:* Not quite right? Use Telegram's native *Edit* feature on the pinned message to fine-tune it — I always read the latest version.\n\n` +
+        `🎙 Ready! Send me a *voice note* to generate your first post.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
       console.error('[voice] Error handling vibe description:', err);
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
-      await ctx.reply('😔 Something went wrong generating your dummy post. Please try again or use /setstyle.');
+      await ctx.reply('😔 Something went wrong generating your template post. Please try again or use /setstyle.');
     }
     return;
   }

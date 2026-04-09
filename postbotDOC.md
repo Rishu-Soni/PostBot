@@ -42,22 +42,33 @@ src/
 
 ### 1. Onboarding (`/start`, `/setstyle`)
 
-New users are guided to configure their writing style via two paths:
+New users are guided to configure their writing style template via two paths:
 
-- **Smart Onboarding (Analyze Example):** User pastes a real LinkedIn post (≥ 80 characters). The bot pins the message in the chat and calls Gemini to extract the user's `preferredTone` and `preferredStyles`. The pinned message is fetched dynamically via `ctx.telegram.getChat()` at generation time — the text is **never stored in the database**.
+- **Manual Setup:** The user types a plain-text description of their preferred vibe, tone, layout, and emoji usage (e.g., _"Professional tone, lots of white space, 3 bullet points, minimal emojis"_). The bot sends this description to Gemini, which generates a 250-word dummy LinkedIn post that perfectly captures the style. The bot then **pins this generated post** to the chat. No data is written to the database.
 
-- **Manual Setup:** 3-step inline-button wizard (Layout → Style → Tone). Includes a `🔙 Back` button for step navigation without data loss.
+- **Provide Example Post:** The user pastes an actual LinkedIn post (≥ 80 characters) directly into the chat. The bot **pins that exact message** immediately. No AI processing needed; no data written to the database.
 
-After completing either path, `onboardingComplete` is set to `true`.
+In both cases:
+- The pinned message becomes the **Exemplar** — the style blueprint used at generation time.
+- The bot reads it dynamically via `ctx.telegram.getChat()` whenever a post is generated; it is **never stored in MongoDB**.
+- `onboardingComplete` is set to `true` once the pin succeeds.
+- Both branches handle the `"not enough rights"` pin permission error gracefully, prompting the user to grant the bot admin pin permission.
 
-### 2. Post Generation (`/generate` + Voice Note)
+After completing either path, the user is prompted to send a voice note to generate their first post.
+
+### 2. Post Generation (`/generate` + Voice Note) & Content Firewall
+
+The backend implements a strict **Content Firewall** when communicating with Gemini:
+- **Format (Stylistic DNA):** Extracted exclusively from the pinned Exemplar message (spacing, emoji usage, line lengths).
+- **Facts (Content):** Extracted exclusively from the user's voice note. The model is forbidden from hallucinating facts from the Exemplar.
 
 The core pipeline:
 
 1. User sends `/generate` — bot checks existing preferences and presents appropriate options.
 2. User sends a voice note (≤ 120s, ≤ 10 MB).
 3. The bot fetches the pinned message (layout reference), downloads the voice file, and calls Gemini.
-4. **3 separate Telegram messages** are sent — one per generated option — each with:
+4. Gemini's payload is heavily sanitized via a custom `escapeMarkdownV2` utility to prevent Telegram API crashes.
+5. **3 separate Telegram messages** are sent — one per generated option — each with:
    - `✅ Post this` → publishes directly to LinkedIn
    - `✏️ Modify this` → opens a ForceReply refinement prompt
    - `📸 Attach Media & Post` → opens a media upload session
@@ -68,10 +79,11 @@ This replaces the previous single-message carousel. No post text is stored in Mo
 
 When the user clicks `✏️ Modify this`:
 1. The bot reads the post text from `ctx.callbackQuery.message.text`.
-2. It sends a **ForceReply** message with `MODIFY_MARKER` followed by the original post text embedded inline.
-3. The user replies with **text** or a **voice note**.
+2. It sends a **ForceReply** message containing the original post text, appending an invisible `\u2060POSTBOT_MARKER\u2060` at the end to reliably extract the payload later.
+3. The user replies with **text** or a **voice note** containing modification instructions.
 4. The handler re-extracts the original post from the quoted message — **zero DB reads required** for the original content.
-5. 3 new variations are returned as separate messages. The cycle repeats indefinitely.
+5. Gemini perfectly mirrors the existing styling while applying the modifications aggressively.
+6. 3 new variations are returned as separate messages. The cycle repeats indefinitely.
 
 ### 4. Media Attachment
 
@@ -92,6 +104,8 @@ OAuth 2.0 flow:
 
 - `/settings` displays current preferences and LinkedIn status. Includes a security notice recommending `/deldata`.
 - `/deldata` uses `$unset` to **permanently remove** all preference and session fields, keeping only `telegramId`, `firstName`, and the audit fields (`delDataAt`, `countDelData`). The `countDelData` counter is preserved via `$inc` for audit purposes.
+- **Global Command Interceptor:** Any slash command resets stale transient states (`inputState`, `pendingMediaIds`) to ensure the user never gets permanently stuck.
+- **Auth Recovery (V-02):** Upon LinkedIn reconnection, previously cached `pendingPostText` is retrieved and sent as a failsafe, plain-text draft so no posts are lost if Telegram's format parsing fails.
 
 ---
 
