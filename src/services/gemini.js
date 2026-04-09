@@ -13,27 +13,43 @@ function getGenAI() {
 const MODEL   = 'gemini-2.5-flash';
 const TIMEOUT = 90_000;
 
-// Calls the Gemini API with a hard timeout.
-// Timer is cleared immediately when Gemini resolves so no dangling timers accumulate.
-async function callGemini(payload) {
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`[Gemini] Request timed out after ${TIMEOUT / 1000}s`)),
-      TIMEOUT
-    );
-  });
+// Calls the Gemini API with a hard timeout and automatic retries for transient errors.
+async function callGemini(payload, maxRetries = 3) {
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`[Gemini] Request timed out after ${TIMEOUT / 1000}s`)),
+        TIMEOUT
+      );
+    });
 
-  try {
-    const result = await Promise.race([
-      getGenAI().models.generateContent(payload),
-      timeoutPromise,
-    ]);
-    const text = (result?.text ?? '').trim();
-    if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
-    return text;
-  } finally {
-    clearTimeout(timer);
+    try {
+      const result = await Promise.race([
+        getGenAI().models.generateContent(payload),
+        timeoutPromise,
+      ]);
+      const text = (result?.text ?? '').trim();
+      if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
+      return text;
+    } catch (err) {
+      const status = err.status || err.response?.status || err.code;
+      // 503: Service Unavailable (High Demand), 429: Rate Limit, 500: Internal Error
+      if ([503, 429, 500].includes(status) && attempt < maxRetries - 1) {
+        attempt++;
+        const backoffMs = attempt * 2000; // 2s, 4s...
+        console.warn(`[Gemini] API error ${status}. Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      // If we exhaust retries or the error is unrecoverable, throw friendly message
+      if (status === 503) err.message = 'The AI model is currently experiencing extremely high demand. Please try again in a minute.';
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 
