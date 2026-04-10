@@ -1,8 +1,8 @@
 'use strict';
 
-const axios  = require('axios');
+const axios = require('axios');
 const { Markup } = require('telegraf');
-const User   = require('../models/User');
+const User = require('../models/User');
 const { generatePosts, generateDummyPost } = require('../services/gemini');
 const { escapeMarkdownV2 } = require('../utils/formatters');
 
@@ -58,7 +58,7 @@ async function sendPostMessages(ctx, posts, usingDefaultStyle = false) {
 
   const keyboard = Markup.inlineKeyboard([
     [
-      Markup.button.callback('🚀 Publish to LinkedIn',   'action_post'),
+      Markup.button.callback('🚀 Publish to LinkedIn', 'action_post'),
       Markup.button.callback('✏️ Refine', 'action_modify'),
     ],
     [
@@ -85,7 +85,7 @@ async function handleVoice(ctx) {
   if (!ctx.message?.voice || !ctx.from) return;
 
   const telegramId = String(ctx.from.id);
-  const voice      = ctx.message.voice;
+  const voice = ctx.message.voice;
 
   // Check if this voice note is a reply to a "✏️ Refine" ForceReply prompt.
   // Marker is appended at the END of the message; we slice everything BEFORE it.
@@ -102,12 +102,12 @@ async function handleVoice(ctx) {
   if (user?.inputState === 'awaiting_describe_vibe') {
     const thinkingMsg = await ctx.reply('✍️ Generating your template post based on your voice description...');
     try {
-      const fileLink    = await ctx.telegram.getFileLink(voice.file_id);
-      const audioResp   = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
+      const fileLink = await ctx.telegram.getFileLink(voice.file_id);
+      const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
       const audioBuffer = Buffer.from(audioResp.data);
 
       const dummyPost = await generateDummyPost(audioBuffer, true);
-      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
 
       const sentMsg = await ctx.reply(escapeMarkdownV2(dummyPost), { parse_mode: 'MarkdownV2' });
 
@@ -139,7 +139,7 @@ async function handleVoice(ctx) {
       );
     } catch (err) {
       console.error('[voice] Error handling vibe description:', err);
-      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
       await ctx.reply('😔 Something went wrong generating your template post. Please try again or use /setstyle.');
     }
     return;
@@ -184,7 +184,7 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
   // We use this as a Few-Shot Exemplar template.
   let layoutExample = DEFAULT_EXEMPLAR_POST;
   let usingDefaultStyle = true;
-  
+
   try {
     const chat = await ctx.telegram.getChat(ctx.chat.id);
     if (chat.pinned_message?.text) {
@@ -197,15 +197,15 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
 
   const thinkingMsg = await ctx.reply(
     originalPostText
-      ? '🔄 Refining your post with Gemini… this may take a moment.'
+      ? '🔄 Refining your post… this may take a moment.'
       : '🎙️ Listening to your voice note and writing your posts...'
   );
 
-  await ctx.sendChatAction('typing').catch(() => {});
+  await ctx.sendChatAction('typing').catch(() => { });
 
   try {
-    const fileLink    = await ctx.telegram.getFileLink(fileId);
-    const audioResp   = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
+    const fileLink = await ctx.telegram.getFileLink(fileId);
+    const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
     const audioBuffer = Buffer.from(audioResp.data);
 
     // If a specific post is being revised, embed it in the refinement hint so
@@ -218,7 +218,7 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       layoutExample,
     }, refinementHint);
 
-    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await sendPostMessages(ctx, postStrings, usingDefaultStyle);
 
   } catch (err) {
@@ -228,10 +228,10 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       user.lastGenerationAt = null;
       await user.save();
     } catch (_) { /* best-effort */ }
-    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await ctx.reply(
       '😔 Something went wrong while processing your voice note.\n\n' +
-      (err.message.startsWith('[Gemini]') ? err.message : 'Please try again in a moment.')
+      (err.message.startsWith('[Gemini]') ? err.message.replace(/Gemini/ig, 'System') : 'Please try again in a moment.')
     );
   }
 }

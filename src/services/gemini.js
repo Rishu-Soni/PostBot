@@ -21,7 +21,7 @@ async function callGemini(payload, maxRetries = 3) {
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error(`[Gemini] Request timed out after ${TIMEOUT / 1000}s`)),
+        () => reject(new Error(`[System] Request timed out after ${TIMEOUT / 1000}s`)),
         TIMEOUT
       );
     });
@@ -32,7 +32,7 @@ async function callGemini(payload, maxRetries = 3) {
         timeoutPromise,
       ]);
       const text = (result?.text ?? '').trim();
-      if (!text) throw new Error('[Gemini] Empty response from API. Please try again.');
+      if (!text) throw new Error('[System] Empty response from API. Please try again.');
       return text;
     } catch (err) {
       const errStr = String(err.status || err.message || err.toString());
@@ -44,13 +44,13 @@ async function callGemini(payload, maxRetries = 3) {
       if ((is503 || is429 || is500) && attempt < maxRetries - 1) {
         attempt++;
         const backoffMs = attempt * 2000; // 2s, 4s...
-        console.warn(`[Gemini] Transient error detected (${is503 ? '503' : is429 ? '429' : '500'}). Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
+        console.warn(`[System] Transient error detected (${is503 ? '503' : is429 ? '429' : '500'}). Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
       // If we exhaust retries or the error is unrecoverable, throw friendly message
       if (is503) {
-        throw new Error('The AI model is currently experiencing extremely high demand. Please wait a moment and try again.');
+        throw new Error('[System] The server is currently experiencing extremely high demand. Please wait a moment and try again.');
       }
       throw err;
     } finally {
@@ -165,8 +165,8 @@ function parsePostsJson(rawText) {
     }
     return posts.slice(0, 3).map(p => (typeof p === 'string' ? p.trim() : JSON.stringify(p)));
   } catch (err) {
-    console.error('[Gemini] JSON parse failed. Raw:\n', rawText, '\nError:', err.message);
-    throw new Error('[Gemini] Could not parse response as JSON. Please try again.');
+    console.error('[System] JSON parse failed. Raw:\n', rawText, '\nError:', err.message);
+    throw new Error('[System] Could not parse response as JSON. Please try again.');
   }
 }
 

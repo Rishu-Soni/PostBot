@@ -79,7 +79,7 @@ async function handleText(ctx) {
     const thinkingMsg = await ctx.reply('✍️ Generating your template post based on your description...');
     try {
       const dummyPost = await generateDummyPost(text, false);
-      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
 
       const sentMsg = await ctx.reply(escapeMarkdownV2(dummyPost), { parse_mode: 'MarkdownV2' });
 
@@ -111,7 +111,7 @@ async function handleText(ctx) {
       );
     } catch (err) {
       console.error('[text] Error handling vibe description:', err);
-      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
       await ctx.reply('😔 Something went wrong generating your template post. Please try again or use /setstyle.');
     }
     return;
@@ -147,17 +147,17 @@ async function handleRevise(ctx, originalPost, instructions) {
     );
   }
 
-  const thinkingMsg = await ctx.reply('✍️ Revising with Gemini… give me a moment.');
+  const thinkingMsg = await ctx.reply('✍️ Revising… give me a moment.');
 
   try {
     const newStrings = await revisePosts(originalPost, sanitised);
-    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await sendPostMessages(ctx, newStrings);
   } catch (err) {
     console.error('[text] handleRevise:', err.message);
-    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => {});
+    await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await ctx.reply(
-      `😔 Revision failed.\n\n${err.message.startsWith('[Gemini]') ? err.message : 'Please try again or send a new voice note.'}`
+      `😔 Revision failed.\n\n${err.message.startsWith('[Gemini]') ? err.message.replace(/Gemini/ig, 'System') : 'Please try again or send a new voice note.'}`
     );
   }
 }
