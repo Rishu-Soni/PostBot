@@ -20,6 +20,17 @@ function extractOriginalPost(replyText) {
   return replyText.slice(0, idx).trim();
 }
 
+/**
+ * Converts an internal error into a user-friendly reply string.
+ * FIXED: Previous code checked for '[Gemini]' prefix which was never present after
+ * the AI-encapsulation refactor — all messages now use '[System]' prefix.
+ */
+function _userFriendlyError(err, fallback) {
+  const msg = err?.message ?? '';
+  if (msg.startsWith('[System]')) return `😔 ${msg.replace('[System] ', '')}`;
+  return fallback;
+}
+
 async function handleText(ctx) {
   const text = ctx.message?.text?.trim() ?? '';
   if (!text || text.startsWith('/')) return;
@@ -74,7 +85,7 @@ async function handleText(ctx) {
   }
 
   // ── Setstyle: Manual Setup (Text) ──────────────────────────────────────────
-  // User described their vibe in text — send to Gemini to generate a dummy post, then pin it.
+  // User described their vibe in text — send to AI to generate a dummy post, then pin it.
   if (user?.inputState === 'awaiting_describe_vibe') {
     const thinkingMsg = await ctx.reply('✍️ Generating your template post based on your description...');
     try {
@@ -112,7 +123,7 @@ async function handleText(ctx) {
     } catch (err) {
       console.error('[text] Error handling vibe description:', err);
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
-      await ctx.reply('😔 Something went wrong generating your template post. Please try again or use /setstyle.');
+      await ctx.reply(_userFriendlyError(err, '😔 Something went wrong generating your template post. Please try again or use /setstyle.'));
     }
     return;
   }
@@ -156,9 +167,9 @@ async function handleRevise(ctx, originalPost, instructions) {
   } catch (err) {
     console.error('[text] handleRevise:', err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
-    await ctx.reply(
-      `😔 Revision failed.\n\n${err.message.startsWith('[Gemini]') ? err.message.replace(/Gemini/ig, 'System') : 'Please try again or send a new voice note.'}`
-    );
+    // FIXED: Check for '[System]' prefix (not '[Gemini]') — the old check never matched
+    // after the AI-encapsulation refactor, causing users to see a generic unhelpful message.
+    await ctx.reply(_userFriendlyError(err, '😔 Revision failed. Please try again or send a new voice note.'));
   }
 }
 

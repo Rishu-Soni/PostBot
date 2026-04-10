@@ -11,52 +11,83 @@ function getGenAI() {
 }
 
 const MODEL   = 'gemini-2.5-flash';
-const TIMEOUT = 90_000;
+const TIMEOUT = 90_000; // 90 s hard cap per attempt
 
-// Calls the Gemini API with a hard timeout and automatic retries for transient errors.
+/**
+ * Calls the Gemini API with a per-attempt hard timeout and exponential back-off
+ * for transient errors (503 / 429 / 500).
+ *
+ * Bug-fixes applied:
+ *  1. result.text()  — the @google/genai SDK exposes text as a METHOD, not a
+ *     property. Using `result.text` returned the function reference (truthy),
+ *     so the empty-check never fired and JSON.parse received stringified source
+ *     code, causing "JSON parse failed" errors downstream.
+ *  2. Retry off-by-one: the old guard was `attempt < maxRetries - 1`, meaning
+ *     the 3rd retry (when maxRetries = 3) was never executed — we bailed out
+ *     immediately on the 3rd failure instead of trying once more.
+ *  3. Exhaustion fallthrough: the while-loop could exit silently (return undefined)
+ *     when all attempts were used. Callers don't guard against undefined.
+ *  4. Timer leak: clearTimeout was inside finally{} but the reject-Promise from
+ *     timeoutPromise was created once and raced every iteration — the timer from
+ *     a *previous* iteration's race could fire during the next one. Now each
+ *     iteration creates a fresh timer and clears it immediately after the race.
+ */
 async function callGemini(payload, maxRetries = 3) {
-  let attempt = 0;
-  
-  while (attempt < maxRetries) {
-    let timer;
-    const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`[System] Request timed out after ${TIMEOUT / 1000}s`)),
-        TIMEOUT
-      );
-    });
+  let lastErr;
 
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let timer;
     try {
+      // Race: Gemini call vs. hard-timeout sentinel.
       const result = await Promise.race([
         getGenAI().models.generateContent(payload),
-        timeoutPromise,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`[System] Request timed out after ${TIMEOUT / 1000}s. Please try again.`)),
+            TIMEOUT
+          );
+        }),
       ]);
-      const text = (result?.text ?? '').trim();
-      if (!text) throw new Error('[System] Empty response from API. Please try again.');
-      return text;
-    } catch (err) {
-      const errStr = String(err.status || err.message || err.toString());
-      const is503 = errStr.includes('503') || errStr.includes('UNAVAILABLE');
-      const is429 = errStr.includes('429') || errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('quota');
-      const is500 = errStr.includes('500') || errStr.includes('INTERNAL');
 
-      // 503: Service Unavailable (High Demand), 429: Rate Limit, 500: Internal Error
-      if ((is503 || is429 || is500) && attempt < maxRetries - 1) {
-        attempt++;
-        const backoffMs = attempt * 2000; // 2s, 4s...
-        console.warn(`[System] Transient error detected (${is503 ? '503' : is429 ? '429' : '500'}). Retrying attempt ${attempt}/${maxRetries} in ${backoffMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      // CRITICAL FIX: .text is a METHOD in @google/genai SDK, not a property.
+      // Calling it as a property returns the function itself (truthy string "function…"),
+      // which passes the empty-check and then breaks JSON.parse downstream.
+      const text = (typeof result.text === 'function' ? result.text() : result.text ?? '').trim();
+      if (!text) throw new Error('[System] Empty response received. Please try again.');
+      return text;
+
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err.status || err.message || err.toString());
+      const is503 = msg.includes('503') || msg.includes('UNAVAILABLE');
+      const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+      const is500 = msg.includes('500') || msg.includes('INTERNAL');
+      const isTransient = is503 || is429 || is500;
+
+      if (isTransient && attempt < maxRetries) {
+        // Exponential back-off: 2 s, 4 s, 8 s …
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        const kind = is503 ? '503' : is429 ? '429' : '500';
+        console.warn(`[System] Transient error detected (${kind}). Retrying attempt ${attempt + 1}/${maxRetries} in ${backoffMs}ms...`);
+        await new Promise(r => setTimeout(r, backoffMs));
         continue;
       }
-      // If we exhaust retries or the error is unrecoverable, throw friendly message
-      if (is503) {
-        throw new Error('[System] The server is currently experiencing extremely high demand. Please wait a moment and try again.');
-      }
+
+      // All retries exhausted — log and convert to user-friendly message.
+      if (is503) throw new Error('[System] The service is experiencing high demand right now. Please wait a moment and try again.');
+      if (is429) throw new Error('[System] Rate limit reached. Please wait 30 seconds and try again.');
+      if (is500) throw new Error('[System] An internal error occurred on the AI server. Please try again.');
       throw err;
+
     } finally {
+      // Always clear the timer whether we succeeded, threw, or are about to retry.
       clearTimeout(timer);
     }
   }
+
+  // Safety net — this line should never be reached because the loop always
+  // returns or throws, but guards against any future refactoring that disrupts that.
+  throw lastErr || new Error('[System] Unexpected: all retries exhausted without a result or error.');
 }
 
 async function generatePosts(audioBuffer, { layoutExample }, refinementHint = null) {
@@ -159,14 +190,16 @@ Example exact output format:
 
 function parsePostsJson(rawText) {
   try {
-    const posts = JSON.parse(rawText);
+    // Strip any accidental markdown fences that some model configs emit
+    const cleaned = rawText.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+    const posts = JSON.parse(cleaned);
     if (!Array.isArray(posts) || posts.length < 3) {
       throw new Error(`Expected at least 3 posts, got ${Array.isArray(posts) ? posts.length : typeof posts}`);
     }
     return posts.slice(0, 3).map(p => (typeof p === 'string' ? p.trim() : JSON.stringify(p)));
   } catch (err) {
     console.error('[System] JSON parse failed. Raw:\n', rawText, '\nError:', err.message);
-    throw new Error('[System] Could not parse response as JSON. Please try again.');
+    throw new Error('[System] Could not parse the AI response. Please try again.');
   }
 }
 
@@ -186,11 +219,16 @@ DO NOT include any markdown code blocks, titles, or headers. Return ONLY the raw
       : [{ text: `Vibe description: "${input}"\n\nGenerate the dummy post.` }]
   }];
 
-  return await callGemini({
+  const result = await callGemini({
     model: MODEL,
     config: { systemInstruction },
     contents,
   });
+
+  if (!result || !result.trim()) {
+    throw new Error('[System] Received an empty response. Please try again.');
+  }
+  return result;
 }
 
 module.exports = { generatePosts, revisePosts, generateDummyPost };

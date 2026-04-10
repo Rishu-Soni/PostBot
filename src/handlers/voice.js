@@ -23,7 +23,7 @@ Here is the 3-step framework:
 • The Cutoff: A hard stop at 6 PM. Everything else gets deleted or delegated.
 
 Productivity isn't about doing more things faster. 
-It’s about doing fewer things, better.
+It's about doing fewer things, better.
 
 What is the 1 task anchoring your day today? 
 
@@ -38,7 +38,7 @@ What is the 1 task anchoring your day today?
 const MODIFY_MARKER = '\n\n\u2060POSTBOT_MARKER\u2060\n';
 
 /**
- * Strips the "📝 Option X of 3\n\n" header from a post message to get clean post text.
+ * Strips the "📝 Option X of 3\\n\\n" header from a post message to get clean post text.
  * Works for any message that starts with the option prefix.
  */
 function extractPostText(msgText) {
@@ -50,8 +50,8 @@ function extractPostText(msgText) {
 /**
  * Sends 3 post options as separate Telegram messages.
  * Each message has two rows of inline buttons:
- *   Row 1: [✅ Post this]  [✏️ Modify this]
- *   Row 2: [📸 Attach Media & Post]
+ *   Row 1: [🚀 Publish to LinkedIn]  [✏️ Refine]
+ *   Row 2: [📸 Add Media]
  */
 async function sendPostMessages(ctx, posts, usingDefaultStyle = false) {
   if (!posts || posts.length === 0) return;
@@ -67,18 +67,31 @@ async function sendPostMessages(ctx, posts, usingDefaultStyle = false) {
   ]);
 
   for (let i = 0; i < posts.length; i++) {
-    // Escape ONLY the raw Gemini content. The header is plain ASCII, safe for MarkdownV2.
+    // Escape ONLY the raw AI content. The header is plain ASCII, safe for MarkdownV2.
     const escapedPost = escapeMarkdownV2(posts[i]);
     let messageText = `📝 Option ${i + 1} of ${posts.length}\n\n${escapedPost}`;
 
     // Append the fallback warning to the final message only.
     // The hardcoded string must have . and ! manually escaped for MarkdownV2.
     if (i === posts.length - 1 && usingDefaultStyle) {
-      messageText += `\n\n_⚠️ Note: I couldn't find a pinned style template in this chat, so I used the default style\. Use /setstyle to create a custom one\!_`;
+      messageText += `\n\n_⚠️ Note: I couldn't find a pinned style template in this chat, so I used the default style\\. Use /setstyle to create a custom one\\!_`;
     }
 
     await ctx.reply(messageText, { parse_mode: 'MarkdownV2', ...keyboard });
   }
+}
+
+/**
+ * Starts a "typing…" keep-alive loop so the Telegram indicator stays visible
+ * for the full duration of a long AI call (which can take 30-60 seconds).
+ * Returns a stop function — call it when the AI call completes or errors.
+ */
+function startTypingIndicator(ctx) {
+  // Telegram's typing indicator auto-clears after 5 s, so refresh every 4 s.
+  const interval = setInterval(() => {
+    ctx.sendChatAction('typing').catch(() => { /* ignore — best-effort */ });
+  }, 4_000);
+  return () => clearInterval(interval);
 }
 
 async function handleVoice(ctx) {
@@ -101,12 +114,14 @@ async function handleVoice(ctx) {
   // User described their vibe via voice note — generate a dummy post, then pin it.
   if (user?.inputState === 'awaiting_describe_vibe') {
     const thinkingMsg = await ctx.reply('✍️ Generating your template post based on your voice description...');
+    const stopTyping = startTypingIndicator(ctx);
     try {
       const fileLink = await ctx.telegram.getFileLink(voice.file_id);
       const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
       const audioBuffer = Buffer.from(audioResp.data);
 
       const dummyPost = await generateDummyPost(audioBuffer, true);
+      stopTyping();
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
 
       const sentMsg = await ctx.reply(escapeMarkdownV2(dummyPost), { parse_mode: 'MarkdownV2' });
@@ -138,9 +153,10 @@ async function handleVoice(ctx) {
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
+      stopTyping();
       console.error('[voice] Error handling vibe description:', err);
       await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
-      await ctx.reply('😔 Something went wrong generating your template post. Please try again or use /setstyle.');
+      await ctx.reply(_userFriendlyError(err, '😔 Something went wrong generating your template post. Please try again or use /setstyle.'));
     }
     return;
   }
@@ -166,7 +182,7 @@ async function handleVoice(ctx) {
 }
 
 /**
- * Downloads the voice note, calls Gemini, and sends 3 separate post messages.
+ * Downloads the voice note, calls the AI service, and sends 3 separate post messages.
  * When `originalPostText` is provided, the voice note is treated as modification
  * instructions for that specific post.
  */
@@ -177,8 +193,8 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
   if (user.lastGenerationAt && (Date.now() - user.lastGenerationAt.getTime() < 30_000)) {
     return ctx.reply('⏳ Whoa, slow down! Let me finish your previous post. Please wait 30 seconds between generations.');
   }
-  user.lastGenerationAt = new Date();
-  await user.save();
+  // Use updateOne (atomic) to avoid stale-doc overwrite issues
+  await User.updateOne({ telegramId: String(ctx.from.id) }, { $set: { lastGenerationAt: new Date() } });
 
   // Fetch the pinned message for layout reference.
   // We use this as a Few-Shot Exemplar template.
@@ -201,7 +217,9 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       : '🎙️ Listening to your voice note and writing your posts...'
   );
 
+  // Start typing keep-alive so the indicator doesn't disappear mid-generation.
   await ctx.sendChatAction('typing').catch(() => { });
+  const stopTyping = startTypingIndicator(ctx);
 
   try {
     const fileLink = await ctx.telegram.getFileLink(fileId);
@@ -209,7 +227,7 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
     const audioBuffer = Buffer.from(audioResp.data);
 
     // If a specific post is being revised, embed it in the refinement hint so
-    // Gemini knows what to refine and listens to the voice for instructions.
+    // the AI knows what to refine and listens to the voice for instructions.
     const refinementHint = originalPostText
       ? `[ORIGINAL POST CONTENT]:\n"${originalPostText}"\n\n[USER REFINEMENT INSTRUCTION]:\nListen to the voice note for their modification instructions.`
       : null;
@@ -218,22 +236,36 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       layoutExample,
     }, refinementHint);
 
+    stopTyping();
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await sendPostMessages(ctx, postStrings, usingDefaultStyle);
 
   } catch (err) {
+    stopTyping();
     console.error('[voice] Pipeline error:', err.message);
-    // Reset the rate limit stamp so a genuine failure doesn't lock the user out for 30s.
-    try {
-      user.lastGenerationAt = null;
-      await user.save();
-    } catch (_) { /* best-effort */ }
+    // FIXED: Reset the rate limit stamp atomically using updateOne so a genuine
+    // failure doesn't lock the user out for 30 seconds.
+    await User.updateOne(
+      { telegramId: String(ctx.from.id) },
+      { $set: { lastGenerationAt: null } }
+    ).catch(() => { /* best-effort */ });
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
-    await ctx.reply(
-      '😔 Something went wrong while processing your voice note.\n\n' +
-      (err.message.startsWith('[Gemini]') ? err.message.replace(/Gemini/ig, 'System') : 'Please try again in a moment.')
-    );
+    await ctx.reply(_userFriendlyError(err, '😔 Something went wrong while processing your voice note.\n\nPlease try again in a moment.'));
   }
+}
+
+/**
+ * Converts an internal error into a user-friendly reply string.
+ * Ensures [System]-prefixed errors are shown as-is (not leaked as technical traces),
+ * while all other errors fall back to the provided default message.
+ *
+ * FIXED: Previous code checked for '[Gemini]' prefix which was never present after
+ * the AI-encapsulation refactor — all messages now use '[System]' prefix.
+ */
+function _userFriendlyError(err, fallback) {
+  const msg = err?.message ?? '';
+  if (msg.startsWith('[System]')) return `😔 ${msg.replace('[System] ', '')}`;
+  return fallback;
 }
 
 module.exports = { handleVoice, processGeneration, sendPostMessages, extractPostText, MODIFY_MARKER };

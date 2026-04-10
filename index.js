@@ -36,26 +36,43 @@ const app = express();
 // Map<groupId, timestamp> instead of a Set — enables lazy GC without setTimeout.
 const seenMediaGroups = new Map();
 
-// DB connection caching (serverless-friendly)
+// DB connection caching (serverless-friendly).
 // serverSelectionTimeoutMS: fail fast (8 s) so Vercel lambdas don't hang for 30 s on Atlas errors.
-// socketTimeoutMS: keep sockets alive for long-running Gemini/LinkedIn operations.
+// socketTimeoutMS: keep sockets alive for long-running AI/LinkedIn operations.
 // family: 4 forces IPv4 — avoids dual-stack DNS issues inside Vercel's network.
 async function connectDB() {
-  if (mongoose.connection.readyState === 1) return;
-  if (mongoose.connection.readyState === 2) {
-    // Already connecting — wait for the existing attempt rather than opening a second one.
+  const state = mongoose.connection.readyState;
+
+  // 1 = connected, nothing to do.
+  if (state === 1) return;
+
+  // 2 = currently connecting — wait for that attempt to settle rather than
+  // opening a second connection. We race against a 12 s safety timeout so we
+  // never hang forever if Mongoose emits neither 'connected' nor 'error'
+  // (e.g., it transitioned to state 3/disconnected before our listeners fired).
+  if (state === 2) {
     await new Promise((resolve, reject) => {
-      mongoose.connection.once('connected', resolve);
-      mongoose.connection.once('error',     reject);
+      const cleanup = () => {
+        mongoose.connection.removeListener('connected', onConnected);
+        mongoose.connection.removeListener('error',     onError);
+        clearTimeout(guard);
+      };
+      const onConnected = () => { cleanup(); resolve(); };
+      const onError     = (err) => { cleanup(); reject(err); };
+      const guard       = setTimeout(() => { cleanup(); reject(new Error('[DB] Connection wait timed out')); }, 12_000);
+      mongoose.connection.once('connected', onConnected);
+      mongoose.connection.once('error',     onError);
     });
     return;
   }
+
+  // 0 = never connected, 3 = disconnected — attempt a fresh connection.
   await mongoose.connect(process.env.MONGODB_URI, {
-    bufferCommands:            false,
-    serverSelectionTimeoutMS:  8_000,   // give up quickly if Atlas is unreachable
-    socketTimeoutMS:           45_000,  // keep sockets alive for long Gemini calls
-    connectTimeoutMS:          10_000,
-    family:                    4,       // force IPv4 to avoid Vercel IPv6 issues
+    bufferCommands:           false,
+    serverSelectionTimeoutMS: 8_000,   // give up quickly if Atlas is unreachable
+    socketTimeoutMS:          45_000,  // keep sockets alive for long AI calls
+    connectTimeoutMS:         10_000,
+    family:                   4,       // force IPv4 to avoid Vercel IPv6 issues
   });
   console.log('[DB] Connected to MongoDB');
 }
