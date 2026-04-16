@@ -1,6 +1,6 @@
 'use strict';
 
-const User = require('../models/User');
+const User = require('../models/User.model');
 const { revisePosts, generateDummyPost } = require('../services/gemini');
 const { sendPostMessages, MODIFY_MARKER } = require('./voice');
 const { escapeMarkdownV2 } = require('../utils/formatters');
@@ -74,7 +74,7 @@ async function handleText(ctx) {
         `✅ *Style template pinned!*\n\n` +
         `I'll use this post as the structural blueprint for every future generation — mirroring its layout, tone, and emoji style exactly.\n\n` +
         `💡 *Pro Tip:* Want to tweak it? Use Telegram's native *Edit* feature on the pinned message — I always read the latest version.\n\n` +
-        `🎙 Ready! Send me a *voice note* to generate your first post.`,
+        `🎙 Ready! Send me a *text or voice note* to generate your first post.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
@@ -117,7 +117,7 @@ async function handleText(ctx) {
         `✅ *Style template generated and pinned!*\n\n` +
         `I'll use this post as the structural blueprint for every future generation — mirroring its layout, tone, and emoji style exactly.\n\n` +
         `💡 *Pro Tip:* Not quite right? Use Telegram's native *Edit* feature on the pinned message to fine-tune it — I always read the latest version.\n\n` +
-        `🎙 Ready! Send me a *voice note* to generate your first post.`,
+        `🎙 Ready! Send me a *text or voice note* to generate your first post.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
@@ -138,10 +138,14 @@ async function handleText(ctx) {
   if (originalPost) return handleRevise(ctx, originalPost, text);
 
   // ── Unrecognised plain text ─────────────────────────────────────────────────
-  await ctx.reply(
-    '🎙 I process voice notes! Send me a *voice note* with your thoughts and I\'ll turn them into LinkedIn posts.',
-    { parse_mode: 'Markdown' }
-  );
+  if (!user || !user.onboardingComplete) {
+    return ctx.reply('⚠️ Please set up your preferences first by running /setstyle.');
+  }
+
+  // Treat as text brain-dump!
+  // Wait, processGeneration is imported from './voice'. Let's destructure it and use it.
+  const { processGeneration } = require('./voice');
+  return processGeneration(ctx, user, text, null, false);
 }
 
 /**
@@ -169,7 +173,7 @@ async function handleRevise(ctx, originalPost, instructions) {
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     // FIXED: Check for '[System]' prefix (not '[Gemini]') — the old check never matched
     // after the AI-encapsulation refactor, causing users to see a generic unhelpful message.
-    await ctx.reply(_userFriendlyError(err, '😔 Revision failed. Please try again or send a new voice note.'));
+    await ctx.reply(_userFriendlyError(err, '😔 Revision failed. Please try again or send a new constraint text.'));
   }
 }
 

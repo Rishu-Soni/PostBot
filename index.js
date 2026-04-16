@@ -27,7 +27,7 @@ const { handleVoice } = require('./src/handlers/voice');
 const { handleActionPost, handleActionModify, handleActionAttachMedia, handleActionCancelMedia, handleMediaDonePost } = require('./src/handlers/actions');
 const { handleText } = require('./src/handlers/text');
 const { exchangeCodeForToken, buildAuthUrl } = require('./src/services/linkedin');
-const User = require('./src/models/User');
+const User = require('./src/models/User.model');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const app = express();
@@ -278,10 +278,10 @@ bot.command('settings', async (ctx) => {
 
 bot.command('help', (ctx) => ctx.reply(
   'What I can do:\n' +
-  '✨ The Postbot Flow: Complete a quick one-time setup > speak your mind into a voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n' +
+  '✨ The Postbot Flow: Complete a quick one-time setup > type or speak your mind into a text or voice note > re-generate with some modifications only if you want > and publish directly to LinkedIn.\n\n' +
   '🎛️ Commands:\n' +
   '/start - Kick off smart onboarding to extract your unique writing style.\n' +
-  '/generate - Record a voice note and let me generate your next post.\n' +
+  '/generate - Send a text or voice note and let me generate your next post.\n' +
   '/setstyle - Set your master template by uploading an example or describing your vibe.\n' +
   '/connect - Securely link your LinkedIn account for instant publishing.\n' +
   '/settings - View your current configuration and brand guidelines.\n' +

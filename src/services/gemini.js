@@ -90,26 +90,26 @@ async function callGemini(payload, maxRetries = 3) {
   throw lastErr || new Error('[System] Unexpected: all retries exhausted without a result or error.');
 }
 
-async function generatePosts(audioBuffer, { layoutExample }, refinementHint = null) {
+async function generatePosts(inputData, { layoutExample }, refinementHint = null, isVoice = true) {
   let systemInstruction;
 
   if (refinementHint) {
-    systemInstruction = `You are an elite LinkedIn ghostwriter. The user wants to revise an existing post using voice instructions.
+    systemInstruction = `You are an elite LinkedIn ghostwriter. The user wants to revise an existing post.
 
 ${refinementHint}
 
 CRITICAL REVISION RULES:
 1. STRICT FORMAT PRESERVATION: You MUST perfectly mirror the layout, paragraph spacing, line lengths, tone, and emoji usage of the [ORIGINAL POST CONTENT]. Do NOT restructure the post.
-2. ACCURATE MODIFICATION: Listen to the audio and apply the specific changes from the [USER REFINEMENT INSTRUCTION] to the content.
+2. ACCURATE MODIFICATION: Follow the specific instructions from the user to revise the content.
 3. OUTPUT: Generate 3 distinct variations of the revised post.
 4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
 Example: ["Variation 1...", "Variation 2...", "Variation 3..."]`;
   } else {
-    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting high-converting viral posts. Your task is to analyze a raw spoken brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
+    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting high-converting viral posts. Your task is to analyze a raw brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
 
 You will receive two variables from the user:
 [EXEMPLAR_POST] - The master template to mimic.
-[USER_BRAIN_DUMP] - The raw transcription containing the factual narrative.
+[USER_BRAIN_DUMP] - The raw transcription or text containing the factual narrative.
 
 ### 🚨 THE CONTENT FIREWALL 🚨
 You must strictly separate FORMATTING from CONTENT. 
@@ -132,8 +132,22 @@ Example exact output format:
 ["First post text...", "Second post text...", "Third post text..."]`;
   }
 
-  // Telegram voice notes are always OGG/Opus; we declare the correct MIME type.
-  const text = await callGemini({
+  const parts = isVoice
+    ? [
+        { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: inputData.toString('base64') } },
+        { text: refinementHint
+            ? 'Generate 3 refined LinkedIn posts based on the audio and the original post.'
+            : `[EXEMPLAR_POST]:\n"${layoutExample}"\n\n[USER_BRAIN_DUMP]: Listen to the attached audio.`
+        },
+      ]
+    : [
+        { text: refinementHint
+            ? `Generate 3 refined LinkedIn posts based on the text instructions and the original post. Instructions:\n"${inputData}"`
+            : `[EXEMPLAR_POST]:\n"${layoutExample}"\n\n[USER_BRAIN_DUMP]:\n"${inputData}"`
+        }
+      ];
+
+  const responseText = await callGemini({
     model: MODEL,
     config: {
       systemInstruction,
@@ -142,17 +156,11 @@ Example exact output format:
     },
     contents: [{
       role: 'user',
-      parts: [
-        { inlineData: { mimeType: 'audio/ogg; codecs=opus', data: audioBuffer.toString('base64') } },
-        { text: refinementHint
-            ? 'Generate 3 refined LinkedIn posts based on the audio and the original post.'
-            : `[EXEMPLAR_POST]:\n"${layoutExample}"\n\n[USER_BRAIN_DUMP]: Listen to the attached audio.`
-        },
-      ],
+      parts,
     }],
   });
 
-  return parsePostsJson(text);
+  return parsePostsJson(responseText);
 }
 
 // Takes a single selected post + user instructions.

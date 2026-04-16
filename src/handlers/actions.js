@@ -1,7 +1,7 @@
 'use strict';
 
 const { Markup } = require('telegraf');
-const User = require('../models/User');
+const User = require('../models/User.model');
 const { postToLinkedIn, getValidAccessToken, buildAuthUrl } = require('../services/linkedin');
 const { MODIFY_MARKER, extractPostText } = require('./voice');
 
@@ -212,7 +212,7 @@ async function executeLinkedInPublish(ctx, user, postText, mediaIds, thinkingMsg
     await user.save();
 
     await ctx.reply(
-      `🎉 *Your post is live on LinkedIn!*\n\n[View your post →](${postUrl})\n\n_Ready for your next idea? Send another voice note!_`,
+      `🎉 *Your post is live on LinkedIn!*\n\n[View your post →](${postUrl})\n\n_Ready for your next idea? Send another text or voice note!_`,
       { parse_mode: 'Markdown', disable_web_page_preview: false }
     );
   } catch (err) {

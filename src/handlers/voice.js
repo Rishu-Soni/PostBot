@@ -2,7 +2,7 @@
 
 const axios = require('axios');
 const { Markup } = require('telegraf');
-const User = require('../models/User');
+const User = require('../models/User.model');
 const { generatePosts, generateDummyPost } = require('../services/gemini');
 const { escapeMarkdownV2 } = require('../utils/formatters');
 
@@ -149,7 +149,7 @@ async function handleVoice(ctx) {
         `✅ *Style template generated and pinned!*\n\n` +
         `I'll use this post as the structural blueprint for every future generation — mirroring its layout, tone, and emoji style exactly.\n\n` +
         `💡 *Pro Tip:* Not quite right? Use Telegram's native *Edit* feature on the pinned message to fine-tune it — I always read the latest version.\n\n` +
-        `🎙 Ready! Send me a *voice note* to generate your first post.`,
+        `🎙 Ready! Send me a *text or voice note* to generate your first post.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
@@ -186,8 +186,8 @@ async function handleVoice(ctx) {
  * When `originalPostText` is provided, the voice note is treated as modification
  * instructions for that specific post.
  */
-async function processGeneration(ctx, user, fileId, originalPostText = null) {
-  if (!fileId) return ctx.reply('⚠️ Could not find your voice note. Please send it again.');
+async function processGeneration(ctx, user, inputData, originalPostText = null, isVoice = true) {
+  if (!inputData) return ctx.reply('⚠️ Could not find your input. Please send it again.');
 
   // ── Rate Limiter (moved here so it doesn't block the /setstyle vibe flow) ──
   if (user.lastGenerationAt && (Date.now() - user.lastGenerationAt.getTime() < 30_000)) {
@@ -214,7 +214,7 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
   const thinkingMsg = await ctx.reply(
     originalPostText
       ? '🔄 Refining your post… this may take a moment.'
-      : '🎙️ Listening to your voice note and writing your posts...'
+      : (isVoice ? '🎙️ Listening to your voice note and writing your posts...' : '✍️ Reading your text and writing your posts...')
   );
 
   // Start typing keep-alive so the indicator doesn't disappear mid-generation.
@@ -222,19 +222,22 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
   const stopTyping = startTypingIndicator(ctx);
 
   try {
-    const fileLink = await ctx.telegram.getFileLink(fileId);
-    const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
-    const audioBuffer = Buffer.from(audioResp.data);
+    let payload = inputData;
+    if (isVoice) {
+      const fileLink = await ctx.telegram.getFileLink(inputData);
+      const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
+      payload = Buffer.from(audioResp.data);
+    }
 
     // If a specific post is being revised, embed it in the refinement hint so
-    // the AI knows what to refine and listens to the voice for instructions.
+    // the AI knows what to refine and listens to the voice or text for instructions.
     const refinementHint = originalPostText
-      ? `[ORIGINAL POST CONTENT]:\n"${originalPostText}"\n\n[USER REFINEMENT INSTRUCTION]:\nListen to the voice note for their modification instructions.`
+      ? `[ORIGINAL POST CONTENT]:\n"${originalPostText}"\n\n[USER REFINEMENT INSTRUCTION]:\n${isVoice ? 'Listen to the voice note for their modification instructions.' : 'Read the provided text for their modification instructions.'}`
       : null;
 
-    const postStrings = await generatePosts(audioBuffer, {
+    const postStrings = await generatePosts(payload, {
       layoutExample,
-    }, refinementHint);
+    }, refinementHint, isVoice);
 
     stopTyping();
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
@@ -250,7 +253,7 @@ async function processGeneration(ctx, user, fileId, originalPostText = null) {
       { $set: { lastGenerationAt: null } }
     ).catch(() => { /* best-effort */ });
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
-    await ctx.reply(_userFriendlyError(err, '😔 Something went wrong while processing your voice note.\n\nPlease try again in a moment.'));
+    await ctx.reply(_userFriendlyError(err, '😔 Something went wrong while processing your input.\n\nPlease try again in a moment.'));
   }
 }
 

@@ -1,6 +1,6 @@
 # Postbot Backend Documentation
 
-Postbot is a Telegram bot that acts as an elite ghostwriter, converting users' raw voice notes into polished, viral-ready LinkedIn posts. The backend is built with Node.js, Express, Telegraf, Mongoose (MongoDB), and the Google GenAI SDK.
+Postbot is a Telegram bot that acts as an elite ghostwriter, converting users' raw text and voice notes into polished, viral-ready LinkedIn posts. The backend is built with Node.js, Express, Telegraf, Mongoose (MongoDB), and the Google GenAI SDK.
 
 ---
 
@@ -54,19 +54,19 @@ In both cases:
 - `onboardingComplete` is set to `true` once the pin succeeds.
 - Both branches handle the `"not enough rights"` pin permission error gracefully, prompting the user to grant the bot admin pin permission.
 
-After completing either path, the user is prompted to send a voice note to generate their first post.
+After completing either path, the user is prompted to send a text or voice note to generate their first post.
 
-### 2. Post Generation (`/generate` + Voice Note) & Content Firewall
+### 2. Post Generation (`/generate` + Text or Voice Note) & Content Firewall
 
 The backend implements a strict **Content Firewall** when communicating with Gemini:
 - **Format (Stylistic DNA):** Extracted exclusively from the pinned Exemplar message (spacing, emoji usage, line lengths).
-- **Facts (Content):** Extracted exclusively from the user's voice note. The model is forbidden from hallucinating facts from the Exemplar.
+- **Facts (Content):** Extracted exclusively from the user's text or voice note. The model is forbidden from hallucinating facts from the Exemplar.
 
 The core pipeline:
 
 1. User sends `/generate` — bot checks existing preferences and presents appropriate options.
-2. User sends a voice note (≤ 120s, ≤ 10 MB).
-3. The bot fetches the pinned message (layout reference), downloads the voice file, and calls Gemini.
+2. User sends a text message or a voice note (≤ 120s, ≤ 10 MB).
+3. The bot fetches the pinned message (layout reference), downloads the voice file (if applicable), and calls Gemini.
 4. Gemini's payload is heavily sanitized via a custom `escapeMarkdownV2` utility to prevent Telegram API crashes.
 5. **3 separate Telegram messages** are sent — one per generated option — each with:
    - `✅ Post this` → publishes directly to LinkedIn

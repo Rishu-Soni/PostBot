@@ -37,6 +37,8 @@
     *   *Fix:* State reset stripped to only impact `inputState: 'idle'`.
 
 ### API Constraints & Validation
+*   **Voice-Only Input Rigidity:** Users were forced to submit voice notes when triggering `/generate`, completely locking out users who preferred to type out their brain dumps or thoughts.
+    *   *Fix:* Fully decoupled the generation pipeline to accept text alongside voice notes during the `brain_dump` payload retrieval, appropriately routing `isVoice` flags to the `GoogleGenAI` context wrapper to parse string payloads securely.
 *   **Gemini Context Deprivation Analysis:** Calling `extractPreferences` with incredibly brief texts (e.g. "hi") forced Gemini to hallucinate responses just to fulfill the requested system constraint mapping.
     *   *Fix:* Implemented an 80-character validation barrier ensuring the post content possesses sufficient depth.
 *   **Strict JSON Typing without Regex:** The onboarding `extractPreferences` parser defaulted back to precarious regex logic (`/```json...`) when extracting tones, bypassing the GenAI Response Schema object implementation.
