@@ -189,9 +189,10 @@ async function handleVoice(ctx) {
 async function processGeneration(ctx, user, inputData, originalPostText = null, isVoice = true) {
   if (!inputData) return ctx.reply('⚠️ Could not find your input. Please send it again.');
 
-  // ── Rate Limiter (moved here so it doesn't block the /setstyle vibe flow) ──
-  if (user.lastGenerationAt && (Date.now() - user.lastGenerationAt.getTime() < 30_000)) {
-    return ctx.reply('⏳ Whoa, slow down! Let me finish your previous post. Please wait 30 seconds between generations.');
+  // ── Generational Concurrency Lock (prevents parallel requests from same user) ──
+  // Lock auto-expires after 3 minutes just in case of a fatal server crash.
+  if (user.lastGenerationAt && (Date.now() - user.lastGenerationAt.getTime() < 180_000)) {
+    return ctx.reply('⏳ Whoa, slow down! Let me finish processing your previous request first.');
   }
   // Use updateOne (atomic) to avoid stale-doc overwrite issues
   await User.updateOne({ telegramId: String(ctx.from.id) }, { $set: { lastGenerationAt: new Date() } });
@@ -225,7 +226,7 @@ async function processGeneration(ctx, user, inputData, originalPostText = null, 
     let payload = inputData;
     if (isVoice) {
       const fileLink = await ctx.telegram.getFileLink(inputData);
-      const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 30_000 });
+      const audioResp = await axios.get(fileLink.href, { responseType: 'arraybuffer', timeout: 60_000 });
       payload = Buffer.from(audioResp.data);
     }
 
@@ -242,6 +243,12 @@ async function processGeneration(ctx, user, inputData, originalPostText = null, 
     stopTyping();
     await ctx.telegram.deleteMessage(ctx.chat.id, thinkingMsg.message_id).catch(() => { });
     await sendPostMessages(ctx, postStrings, usingDefaultStyle);
+
+    // Unlock the user for subsequent requests immediately upon success
+    await User.updateOne(
+      { telegramId: String(ctx.from.id) },
+      { $set: { lastGenerationAt: null } }
+    ).catch(() => { /* best-effort */ });
 
   } catch (err) {
     stopTyping();

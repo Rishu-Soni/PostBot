@@ -58,9 +58,9 @@ After completing either path, the user is prompted to send a text or voice note 
 
 ### 2. Post Generation (`/generate` + Text or Voice Note) & Content Firewall
 
-The backend implements a strict **Content Firewall** when communicating with Gemini:
-- **Format (Stylistic DNA):** Extracted exclusively from the pinned Exemplar message (spacing, emoji usage, line lengths).
-- **Facts (Content):** Extracted exclusively from the user's text or voice note. The model is forbidden from hallucinating facts from the Exemplar.
+The backend implements a strict **Content Firewall** and **Style DNA Cloning** when communicating with Gemini:
+- **Style DNA (Format & Tone):** Extracted exclusively from the pinned Exemplar message. This is a deep, 9-point heuristic clone that maps: *vocabulary register, professionalism level, sentence rhythm, hook style, emoji usage, paragraph spacing, punctuation personality, and emotional register*. Furthermore, strict explicit `\\n` formatting rules are enforced to preserve vertical spacing and avoid the JSON parser flattening the output.
+- **Facts (Content Firewall):** Extracted exclusively from the user's text or voice note. The model is forbidden from hallucinating facts, names, or stories from the Exemplar.
 
 The core pipeline:
 
@@ -137,8 +137,10 @@ OAuth 2.0 flow:
 ## Gemini Integration (`gemini.js`)
 
 - **Lazy SDK init:** `GoogleGenAI` is instantiated on first use, not at module load, preventing issues during serverless cold-start before env vars are available.
-- **Timer cleanup:** The `TIMEOUT` `Promise.race` clears its `setTimeout` in a `finally` block to prevent timer leaks under load.
+- **Timer cleanup & High-Demand Recovery:** `timeout` caps are set to 180 seconds, max retries extended to 4. Back-off logic handles 503 server overloads caused by dense 2-minute audio transcripts.
+- **Generational Concurrency Lock:** Ensures a single user cannot trigger parallel Gemini jobs to prevent quota abuse or sequence breaking. The lock releases immediately once processing completes.
 - **Schema-enforced JSON:** All three Gemini callers (`generatePosts`, `revisePosts`, `extractPreferences`) use `responseSchema` so the model is structurally constrained at the API level — no regex parsing.
+- **Explicit Layout Constraints:** Model generation pipelines are instructed to return literal `\\n` and `\\n\\n` sequence blocks within the parsed arrays to avoid `application/json` serialization deleting whitespace.
 - **Correct MIME type:** Voice notes are declared as `audio/ogg; codecs=opus` (Telegram's actual encoding).
 
 ---

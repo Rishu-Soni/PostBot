@@ -29,6 +29,8 @@
     *   *Fix:* Transferred SDK init to a lazy-loader getter function `getGenAI()`.
 *   **Inline `require()` performance drain:** The `/generate` handler command invoked `require('./src/handlers/onboarding')` directly within the anonymous block.
     *   *Fix:* Moved the require statement globally to avoid dynamic resolution overhead mid-lifecycle.
+*   **Gemini 503 Timeout & 2-Min Audio Drops:** Processing large 2-minute voice notes resulted in high-demand 503 drops.
+    *   *Fix:* Raised API timeout limit to `180_000ms`, extended Axios voice downloads to `60_000ms`, and increased max API retries to 4 with an exponential back-off up to 16s. Let explicit failure specify Google AI API overload.
 
 ### Security / Privacy Logic
 *   **Unsetting Audit Trails:** The privacy `/deldata` handler wiped preferences and states but utilized `$unset` on `countDelData`, an audit counter intended to track privacy purges.
@@ -42,7 +44,11 @@
 *   **Gemini Context Deprivation Analysis:** Calling `extractPreferences` with incredibly brief texts (e.g. "hi") forced Gemini to hallucinate responses just to fulfill the requested system constraint mapping.
     *   *Fix:* Implemented an 80-character validation barrier ensuring the post content possesses sufficient depth.
 *   **Strict JSON Typing without Regex:** The onboarding `extractPreferences` parser defaulted back to precarious regex logic (`/```json...`) when extracting tones, bypassing the GenAI Response Schema object implementation.
-    *   *Fix:* Formalized `responseSchema` with properties mapping directly for `preferredTone` and `preferredStyles`. 
+    *   *Fix:* Formalized `responseSchema` with properties mapping directly for `preferredTone` and `preferredStyles`.
+*   **Generational Concurrency Loopholes:** The `/generate` rate-limiter effectively paused users permanently for 30s even if the job concluded quickly.
+    *   *Fix:* Converted to an absolute Concurrency Lock that clears immediately upon request success or error. Added a 3-minute hard-cap timeout protection for crashed job recovery.
+*   **Prompt Flattening & Layout Degeneration:** JSON array outputs automatically stripped format block spacing. Tone mimicking lacked sufficient semantic markers.
+    *   *Fix:* Added 9 precise "Style DNA" parsing fields demanding mimicking of vocabulary complexity and professional tone. Created a strict literal `\\n` encoding pipeline that forces vertical white space inside the object blocks.
 
 ### Media Injection & Integration
 *   **Audio Base Format Compatibility:** Base voice payload mime settings hardcoded as strictly `audio/ogg`, confusing the AI API interpretation occasionally context-dependent to compression ratios provided natively via telegram's mobile clients.

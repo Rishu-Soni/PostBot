@@ -11,7 +11,7 @@ function getGenAI() {
 }
 
 const MODEL   = 'gemini-2.5-flash';
-const TIMEOUT = 90_000; // 90 s hard cap per attempt
+const TIMEOUT = 180_000; // 180 s hard cap per attempt (supports ~2 min audio files)
 
 /**
  * Calls the Gemini API with a per-attempt hard timeout and exponential back-off
@@ -32,7 +32,7 @@ const TIMEOUT = 90_000; // 90 s hard cap per attempt
  *     a *previous* iteration's race could fire during the next one. Now each
  *     iteration creates a fresh timer and clears it immediately after the race.
  */
-async function callGemini(payload, maxRetries = 3) {
+async function callGemini(payload, maxRetries = 4) {
   let lastErr;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -65,8 +65,8 @@ async function callGemini(payload, maxRetries = 3) {
       const isTransient = is503 || is429 || is500;
 
       if (isTransient && attempt < maxRetries) {
-        // Exponential back-off: 2 s, 4 s, 8 s …
-        const backoffMs = Math.pow(2, attempt) * 1000;
+        // Exponential back-off: 4 s, 8 s, 16 s...
+        const backoffMs = Math.pow(2, attempt + 1) * 1000;
         const kind = is503 ? '503' : is429 ? '429' : '500';
         console.warn(`[System] Transient error detected (${kind}). Retrying attempt ${attempt + 1}/${maxRetries} in ${backoffMs}ms...`);
         await new Promise(r => setTimeout(r, backoffMs));
@@ -74,7 +74,8 @@ async function callGemini(payload, maxRetries = 3) {
       }
 
       // All retries exhausted — log and convert to user-friendly message.
-      if (is503) throw new Error('[System] The service is experiencing high demand right now. Please wait a moment and try again.');
+      // FIX: Removed double-escaped backslash (\\\\'s) that was producing a literal \' in the string.
+      if (is503) throw new Error("[System] Google's AI servers are heavily overloaded by this request. Please try waiting a moment or trimming your input.");
       if (is429) throw new Error('[System] Rate limit reached. Please wait 30 seconds and try again.');
       if (is500) throw new Error('[System] An internal error occurred on the AI server. Please try again.');
       throw err;
@@ -103,33 +104,63 @@ CRITICAL REVISION RULES:
 2. ACCURATE MODIFICATION: Follow the specific instructions from the user to revise the content.
 3. OUTPUT: Generate 3 distinct variations of the revised post.
 4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
-Example: ["Variation 1...", "Variation 2...", "Variation 3..."]`;
+
+🚨 LAYOUT PRESERVATION — CRITICAL:
+You MUST use explicit newline characters (\\n) in the returned JSON strings to maintain all original paragraph breaks.
+Do NOT flatten the post into a single wall of text. Each paragraph break in the original MUST appear as \\n\\n in the JSON string.
+
+Example of correctly formatted output:
+["Line 1 of post\\n\\nLine 2 of post\\n\\nLine 3 of post", "Variation 2 line 1\\n\\nVariation 2 line 2...", "Variation 3..."]`;
   } else {
-    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter known for crafting high-converting viral posts. Your task is to analyze a raw brain-dump and transform it into 3 distinct, ready-to-publish LinkedIn posts.
+    systemInstruction = `You are an elite, top 1% LinkedIn ghostwriter. Your job is to clone the WRITING STYLE of an example post and apply it to completely different content.
 
-You will receive two variables from the user:
-[EXEMPLAR_POST] - The master template to mimic.
-[USER_BRAIN_DUMP] - The raw transcription or text containing the factual narrative.
+You will receive:
+[EXEMPLAR_POST] — A post whose STYLE you must clone exactly.
+[USER_BRAIN_DUMP] — The raw content that your new posts must be about.
 
-### 🚨 THE CONTENT FIREWALL 🚨
-You must strictly separate FORMATTING from CONTENT. 
-1. **From the [EXEMPLAR_POST]**: Extract ONLY the structural DNA. This includes the paragraph spacing, sentence length rhythm, hook style, emoji frequency, formatting tricks (like bullet points or dashes), and the overall tone of voice (e.g., punchy, educational, or storytelling).
-2. **From the [USER_BRAIN_DUMP]**: Extract 100% of the facts, narratives, opinions, topics, and subject matter.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧬 STEP 1 — EXTRACT THE STYLE DNA FROM [EXEMPLAR_POST]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Before writing anything, silently analyse the [EXEMPLAR_POST] and extract every one of these style attributes:
 
-CRITICAL CONSTRAINTS:
-- YOU ARE STRICTLY FORBIDDEN from borrowing any subjects, facts, names, companies, stories, or events from the [EXEMPLAR_POST]. It is a structural blueprint ONLY.
-- NEVER hallucinate or inject facts outside of what is provided in the [USER_BRAIN_DUMP].
-- Do not use AI-sounding jargon (e.g., "delve", "unlock", "supercharge", "testament"). Sound human.
-- Make sure to format emojis and spaces exactly as patterned in the [EXEMPLAR_POST].
-- Ensure you output 3 different angles or variations of the same core story/facts.
+- **Vocabulary register**: Are the words simple/conversational or sophisticated/formal? What is the average word complexity?
+- **Professionalism level**: Is the tone casual, semi-professional, or corporate? Replicate that exact level.
+- **Sentence length & rhythm**: Are sentences short and punchy? Long and flowing? A mix? Mirror the exact rhythm.
+- **Hook style**: How does the post open? A question? A bold claim? A statistic? A personal story? Use the same hook type.
+- **Paragraph structure**: How many lines per paragraph? Are there single-sentence punchy paragraphs or longer blocks? Replicate exactly.
+- **Emoji usage**: How many emojis? Where are they placed (start, mid, end of line)? Are they decorative or functional? Mirror exactly — if there are none, use none.
+- **Punctuation style**: Ellipses? Dashes? Exclamation marks? Copy the punctuation personality precisely.
+- **Closing style**: Does the post end with a question, a CTA, hashtags, or a reflection? Use the same closing pattern.
+- **Emotional register**: Is the writing vulnerable, authoritative, inspiring, analytical? Replicate that energy.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚫 STEP 2 — CONTENT FIREWALL (ABSOLUTE RULE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Extract ALL facts, stories, opinions, topics, and subject matter EXCLUSIVELY from [USER_BRAIN_DUMP].
+- You are STRICTLY FORBIDDEN from using any topics, names, companies, events, opinions, or stories from [EXEMPLAR_POST].
+- NEVER hallucinate or add facts not present in the [USER_BRAIN_DUMP].
+- Do not use AI-sounding filler words (e.g., "delve", "unlock", "supercharge", "testament", "foster"). Sound like a real human wrote this.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✍️ STEP 3 — WRITE 3 VARIATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Write 3 distinct LinkedIn posts. Each must:
+- Use the SAME vocabulary register, professionalism, sentence rhythm, and emotional tone as [EXEMPLAR_POST].
+- Be about ENTIRELY different angles of the [USER_BRAIN_DUMP] content.
+- Feel like the same author wrote both the exemplar and the new posts.
+
+🚨 LINE BREAK RULE — CRITICAL:
+You MUST use explicit \\n characters inside the JSON strings to encode every line break and paragraph gap.
+Each blank line between paragraphs = \\n\\n in the JSON string. A soft line break (same paragraph, new line) = \\n.
+Do NOT output a flat wall of text. The vertical spacing MUST mirror the [EXEMPLAR_POST] exactly.
 
 ### OUTPUT FORMAT
-- NO titles, NO headers, NO introductory text.
-- RETURN EXCLUSIVELY A RAW JSON ARRAY containing exactly 3 string elements representing the 3 generated posts.
-- Do not wrap the output in markdown code blocks. No extra text before or after the array.
+- NO titles, NO headers, NO preamble.
+- Return EXCLUSIVELY a raw JSON array of exactly 3 strings.
+- Do not wrap in markdown code blocks. No extra text before or after.
 
-Example exact output format:
-["First post text...", "Second post text...", "Third post text..."]`;
+Example of correct output format:
+["Hook line\\n\\nSecond paragraph\\n\\nClosing CTA #hashtag", "Hook line variation 2\\n\\nParagraph 2...", "Hook line variation 3\\n\\nParagraph 2..."]`;
   }
 
   const parts = isVoice
@@ -172,7 +203,7 @@ async function revisePosts(postText, instructions) {
 [ORIGINAL POST CONTENT]:
 "${postText}"
 
-[USER REFINEMENT INSTRUCTION]: 
+[USER REFINEMENT INSTRUCTION]:
 "${instructions}"
 
 CRITICAL REVISION RULES:
@@ -180,8 +211,13 @@ CRITICAL REVISION RULES:
 2. ACCURATE MODIFICATION: Apply the changes from the [USER REFINEMENT INSTRUCTION] aggressively to the content (change facts, add text, remove text as requested). If an instruction conflicts with the original, prioritize the instruction but KEEP the overall structure intact.
 3. OUTPUT: Generate 3 distinct variations of the revised post.
 4. FORMAT: Return EXCLUSIVELY a raw JSON array of exactly 3 strings. No markdown code blocks, no extra text.
-Example exact output format:
-["Variation 1...", "Variation 2...", "Variation 3..."]`;
+
+🚨 LAYOUT LOCK — CRITICAL:
+You MUST use explicit newline characters (\\n) within the JSON strings to preserve the exact vertical white spacing and paragraph breaks of the [ORIGINAL POST CONTENT].
+Do NOT return a solid block of text. Each paragraph break = \\n\\n in the JSON string.
+
+Example of correctly formatted output:
+["Revised line 1\\n\\nRevised paragraph 2\\n\\nClosing line", "Variation 2 line 1\\n\\nVariation 2 paragraph 2...", "Variation 3..."]`;
 
   const text = await callGemini({
     model: MODEL,
