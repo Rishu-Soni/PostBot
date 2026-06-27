@@ -1,3 +1,4 @@
+# Link: . https://t.me/Rs97_Postbot
 # Postbot Backend
 
 Postbot is an AI-powered Telegram bot that acts as an elite ghostwriter, converting users' raw text and voice notes into polished, viral-ready LinkedIn posts. 
