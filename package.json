@@ -1,24 +1,22 @@
 {
-  "name": "postbot-backend",
+  "name": "postbot",
+  "private": true,
   "version": "1.0.0",
-  "description": "Telegram bot that converts voice brain-dumps into LinkedIn posts via Gemini AI.",
-  "main": "index.js",
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "dependencies": {
-    "@google/genai": "^0.7.0",
-    "axios": "^1.6.8",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "mongoose": "^8.3.4",
-    "telegraf": "^4.16.3"
+    "dev": "concurrently -n FRONTEND,BACKEND -c blue,green \"npm run dev -w frontend\" \"npm run dev -w backend\"",
+    "build": "npm run build -w frontend",
+    "start:backend": "npm run start -w backend",
+    "test": "npm run test --workspaces --if-present",
+    "test:backend": "npm run test -w backend",
+    "test:frontend": "npm run test -w frontend",
+    "test:coverage": "npm run test:coverage --workspaces --if-present"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "concurrently": "^9.1.2"
   }
 }

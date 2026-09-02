@@ -1,0 +1,43 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node --max-old-space-size=4096 --expose-gc --experimental-vm-modules ../node_modules/jest/bin/jest.js --runInBand --logHeapUsage --forceExit",
+    "test:coverage": "node --max-old-space-size=4096 --expose-gc --experimental-vm-modules ../node_modules/jest/bin/jest.js --runInBand --logHeapUsage --coverage --forceExit",
+    "worker": "node src/jobs/worker.js",
+    "test:job": "node src/jobs/test-job.js",
+    "test:jest": "node --experimental-vm-modules ../node_modules/jest/bin/jest.js",
+    "test:publish": "node test_publish_manual.js",
+    "test:notifier": "node test_notifier_unit.js",
+    "test:email": "node test_notifier_manual.js"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^6.3.4",
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.10.1",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.5.1",
+    "axios-mock-adapter": "^2.1.0",
+    "ioredis-mock": "^8.13.1",
+    "jest": "^30.5.1",
+    "mongodb-memory-server": "^11.2.0",
+    "nodemon": "^3.1.9",
+    "supertest": "^7.2.2"
+  }
+}

@@ -1,27 +1,37 @@
-# ─── Dependencies ────────────────────────────────────────────────────────────
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
 
-# ─── Environment secrets — NEVER commit your real .env ───────────────────────
+# Environment variables
 .env
 .env.local
-.env.*.local
-.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
 
-# ─── Logs ────────────────────────────────────────────────────────────────────
-logs/
+# Production build outputs
+dist/
+dist-ssr/
+build/
+*.local
+
+# Logs
+logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# ─── OS / Editor junk ────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# Editor directories and OS files
 .vscode/
 .idea/
-
-# ─── Build output ─────────────────────────────────────────────────────────────
-dist/
-build/
-
-# ─── Tests ───────────────────────────────────────────────────────────────────
-tests/
-AUDIT_REPORT.md
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
