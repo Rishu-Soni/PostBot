@@ -30,9 +30,6 @@ export const handlers = [
       profile: { localizedFirstName: 'Test', localizedLastName: 'User' },
     });
   }),
-  http.post(`${API_URL}/linkedin/disconnect`, () => {
-    return HttpResponse.json({ message: 'Disconnected successfully' });
-  }),
 
   // Journeys endpoints
   http.get(`${API_URL}/journeys`, () => {
@@ -58,9 +55,6 @@ export const handlers = [
         isActive: true,
       },
     });
-  }),
-  http.delete(`${API_URL}/journeys/:id`, () => {
-    return HttpResponse.json({ message: 'Journey deleted' });
   }),
 
   // Daily entries endpoints

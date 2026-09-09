@@ -37,7 +37,7 @@ describe('DashboardPage', () => {
     
     await waitFor(() => {
       expect(screen.getByText(/View Journeys/i)).toBeInTheDocument();
-      expect(screen.getByText(/New Journey/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/New Journey/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 });

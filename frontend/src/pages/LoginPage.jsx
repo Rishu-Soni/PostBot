@@ -9,7 +9,7 @@ export const LoginPage = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, mockMode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -61,6 +61,14 @@ export const LoginPage = () => {
         <p className="mt-2 text-center text-sm text-slate-400">
           Sign in to your account to manage your posts and journeys
         </p>
+        {mockMode && (
+          <div className="flex justify-center mt-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Demo Mode Active (Zero Credentials Needed)
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10 px-4 sm:px-0">

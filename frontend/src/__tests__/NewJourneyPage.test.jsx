@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import NewJourneyPage from '../pages/NewJourneyPage';
@@ -38,7 +38,9 @@ describe('NewJourneyPage', () => {
     
     await user.type(screen.getByLabelText(/Journey Title/i), 'My Test Journey');
     await user.type(screen.getByLabelText(/Hashtags/i), 'test, coding');
-    await user.type(screen.getByLabelText(/Post Template/i), 'Hello {{topic}}');
+    fireEvent.change(screen.getByLabelText(/Post Template/i), {
+      target: { value: 'Hello {{topic}}', name: 'template' },
+    });
     
     await user.click(screen.getByRole('button', { name: /Create Journey/i }));
     
@@ -63,7 +65,9 @@ describe('NewJourneyPage', () => {
     const user = userEvent.setup();
     
     await user.type(screen.getByLabelText(/Journey Title/i), 'My Test Journey');
-    await user.type(screen.getByLabelText(/Post Template/i), 'Hello {{topic}}');
+    fireEvent.change(screen.getByLabelText(/Post Template/i), {
+      target: { value: 'Hello {{topic}}', name: 'template' },
+    });
     await user.click(screen.getByRole('button', { name: /Create Journey/i }));
     
     await waitFor(() => {

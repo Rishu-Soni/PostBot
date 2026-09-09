@@ -80,7 +80,7 @@ describe('AuthContext', () => {
 
   it('handles login failure', async () => {
     server.use(
-      http.post('http://localhost/api/auth/login', () => {
+      http.post('/api/auth/login', () => {
         return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 });
       })
     );

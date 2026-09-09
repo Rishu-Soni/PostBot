@@ -10,7 +10,7 @@ export const SignupPage = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { signup, isAuthenticated } = useAuth();
+  const { signup, isAuthenticated, mockMode } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already authenticated
@@ -69,6 +69,14 @@ export const SignupPage = () => {
         <p className="mt-2 text-center text-sm text-slate-400">
           Start generating and scheduling engaging LinkedIn posts
         </p>
+        {mockMode && (
+          <div className="flex justify-center mt-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Demo Mode Active (Zero Credentials Needed)
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md relative z-10 px-4 sm:px-0">

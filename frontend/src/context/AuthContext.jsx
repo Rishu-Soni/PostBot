@@ -8,6 +8,19 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
   const [loading, setLoading] = useState(true);
+  const [mockMode, setMockMode] = useState(false);
+
+  // Detect backend mock mode
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data.mockMode === 'boolean') {
+          setMockMode(data.mockMode);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Initialize and verify authentication state on mount
   useEffect(() => {
@@ -112,6 +125,7 @@ export const AuthProvider = ({ children }) => {
     token,
     loading,
     isAuthenticated: !!user && !!token,
+    mockMode,
     login,
     signup,
     logout,

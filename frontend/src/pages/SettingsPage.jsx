@@ -101,11 +101,11 @@ export const SettingsPage = () => {
         }
       }
 
-      // If JSON response was not returned, fallback to direct query token navigation
-      window.location.href = `/api/linkedin/connect?token=${encodeURIComponent(token)}`;
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to obtain LinkedIn authorization URL');
     } catch (err) {
       console.error('Failed to initiate LinkedIn OAuth:', err);
-      setErrorMessage('Could not initiate LinkedIn connection. Please try again.');
+      setErrorMessage(err.message || 'Could not initiate LinkedIn connection. Please try again.');
       setConnecting(false);
     }
   };
