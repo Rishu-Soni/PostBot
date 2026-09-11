@@ -1,5 +1,9 @@
+Postbot_backend.md
+
 # Dependencies
 node_modules/
+frontend/node_modules/
+backend/node_modules/
 .pnp
 .pnp.js
 
@@ -11,10 +15,13 @@ node_modules/
 .env.production.local
 *.env
 
-# Production build outputs
+# Production build outputs & test coverage
 dist/
 dist-ssr/
 build/
+coverage/
+backend/coverage/
+frontend/coverage/
 *.local
 
 # Logs

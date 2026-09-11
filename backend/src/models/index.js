@@ -1,6 +1,4 @@
-// Central export so the rest of the app can do:
-//   const { User, ContentBatch, Post, CreditTransaction, Notification } = require('./models');
-
+// Central export for Mongoose schemas
 module.exports = {
   User: require('./User'),
   ContentBatch: require('./ContentBatch'),
