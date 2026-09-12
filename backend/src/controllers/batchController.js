@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { DateTime } = require('luxon');
 const { ContentBatch, Post, User, CreditTransaction } = require('../models');
 const aiService = require('../services/aiService');
 const imageService = require('../services/imageService');
@@ -256,20 +257,25 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // Parse user posting schedule preferences
+  // Parse user posting schedule preferences and timezone
   const defaultPostTime = req.user.defaultPostTime || '09:00';
   const [targetHourStr, targetMinuteStr] = defaultPostTime.split(':');
   const targetHour = parseInt(targetHourStr, 10) || 9;
   const targetMinute = parseInt(targetMinuteStr, 10) || 0;
 
-  // Compute scheduledTime per post: dayIndex days from now at preferred posting time
-  const now = new Date();
-  for (const post of posts) {
-    const scheduledDate = new Date(now);
-    scheduledDate.setUTCDate(now.getUTCDate() + post.dayIndex);
-    scheduledDate.setUTCHours(targetHour, targetMinute, 0, 0);
+  const userTimezone = req.user.timezone || 'UTC';
+  let nowInUserTz = DateTime.now().setZone(userTimezone);
+  if (!nowInUserTz.isValid) {
+    nowInUserTz = DateTime.now().setZone('UTC');
+  }
 
-    post.scheduledTime = scheduledDate;
+  // Compute scheduledTime per post: dayIndex days from now in user's timezone at preferred post time
+  for (const post of posts) {
+    const scheduledDt = nowInUserTz
+      .plus({ days: post.dayIndex })
+      .set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+
+    post.scheduledTime = scheduledDt.toJSDate();
     post.status = 'pending';
     await post.save();
   }
