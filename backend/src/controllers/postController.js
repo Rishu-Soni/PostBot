@@ -206,8 +206,11 @@ const uploadImage = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * Immediate post-now validation action.
+ * Immediate post-now validation and retry action.
  * Directly publishes the post via linkedinService, bypassing the scheduler.
+ * Accepts posts with status 'pending' or 'failed' (allows retrying failed posts).
+ * Rejects posts already 'posted' or in another state.
+ * No credit is charged for retries.
  * Route: POST /api/v1/posts/:postId/post-now
  */
 const postNow = asyncHandler(async (req, res, next) => {
@@ -217,23 +220,73 @@ const postNow = asyncHandler(async (req, res, next) => {
     return next(new AppError('This post has already been published to LinkedIn.', 400));
   }
 
-  // Load user with OAuth access token
-  const userWithToken = await User.findById(req.user._id).select('+linkedin.accessToken');
+  if (post.status !== 'pending' && post.status !== 'failed') {
+    return next(
+      new AppError(
+        `Cannot publish post with status '${post.status}'. Only 'pending' or 'failed' posts can be published.`,
+        400
+      )
+    );
+  }
 
-  const publishResult = await linkedinService.createPost(userWithToken, post);
+  // Load user with OAuth access and refresh tokens
+  const userWithToken = await User.findById(req.user._id).select(
+    '+linkedin.accessToken +linkedin.refreshToken'
+  );
 
-  post.status = 'posted';
-  post.linkedinPostId = publishResult.linkedinPostId;
-  post.postedAt = publishResult.postedAt || new Date();
+  if (!userWithToken?.linkedin?.isConnected || !userWithToken?.linkedin?.accessToken) {
+    return next(
+      new AppError(
+        'LinkedIn account is not connected. Please connect your LinkedIn profile before posting.',
+        409
+      )
+    );
+  }
+
+  // Proactively check token expiry and refresh if expired or expiring imminently
+  const tokenExpiresAt = userWithToken.linkedin.tokenExpiresAt
+    ? new Date(userWithToken.linkedin.tokenExpiresAt).getTime()
+    : 0;
+  if (!tokenExpiresAt || tokenExpiresAt - Date.now() <= 60 * 60 * 1000) {
+    try {
+      await linkedinService.refreshToken(userWithToken);
+    } catch (refreshErr) {
+      post.status = 'failed';
+      post.failureReason = 'token_expired';
+      await post.save();
+      return next(
+        new AppError(
+          `Failed to refresh expired LinkedIn token: ${refreshErr.message}`,
+          401
+        )
+      );
+    }
+  }
+
+  // Reset failureReason going into the attempt
   post.failureReason = null;
-  await post.save();
 
-  res.status(200).json({
-    success: true,
-    data: {
-      post,
-    },
-  });
+  try {
+    const publishResult = await linkedinService.createPost(userWithToken, post);
+
+    post.status = 'posted';
+    post.linkedinPostId = publishResult.linkedinPostId;
+    post.postedAt = publishResult.postedAt || new Date();
+    post.failureReason = null;
+    await post.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        post,
+      },
+    });
+  } catch (publishErr) {
+    post.status = 'failed';
+    post.failureReason = publishErr.message || 'LinkedIn publication failed';
+    await post.save();
+    return next(publishErr);
+  }
 });
 
 module.exports = {

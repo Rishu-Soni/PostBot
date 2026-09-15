@@ -109,22 +109,58 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
     return next(new AppError('Day count can only be adjusted while batch is in draft status.', 400));
   }
 
-  // Enforce the ±2 adjustment rule
-  const diff = Math.abs(finalDayCount - batch.recommendedDayCount);
-  if (diff > 2) {
+  // Enforce the ±2 adjustment rule with floor protection (Fix 2)
+  const minAllowed = Math.max(1, batch.recommendedDayCount - 2);
+  const maxAllowed = batch.recommendedDayCount + 2;
+  if (finalDayCount < minAllowed || finalDayCount > maxAllowed) {
+    return next(
+      new AppError(`finalDayCount must be between ${minAllowed} and ${maxAllowed}`, 400)
+    );
+  }
+
+  // Query existing posts for this batch to support resumable partial batch generation (Fix 4)
+  const existingPosts = await Post.find({ batchId: batch._id }).sort({ dayIndex: 1 });
+  const maxExistingDay = existingPosts.length > 0 ? Math.max(...existingPosts.map((p) => p.dayIndex)) : 0;
+
+  // Guard against finalDayCount being decreased below the number of days already generated
+  if (finalDayCount < existingPosts.length || finalDayCount < maxExistingDay) {
     return next(
       new AppError(
-        `Final day count must be within ±2 days of the recommended count (${batch.recommendedDayCount}). Received: ${finalDayCount}.`,
+        `Cannot reduce finalDayCount to ${finalDayCount}. ${existingPosts.length} day(s) have already been generated (up to day ${maxExistingDay}) for this batch.`,
         400
       )
     );
   }
 
-  // Pre-check credits before starting external calls (1 credit per generated post)
-  if ((req.user.creditBalance || 0) < finalDayCount) {
+  // Compute which dayIndex values are still missing (1..finalDayCount)
+  const existingDayIndices = new Set(existingPosts.map((p) => p.dayIndex));
+  const missingDayIndices = [];
+  for (let d = 1; d <= finalDayCount; d++) {
+    if (!existingDayIndices.has(d)) {
+      missingDayIndices.push(d);
+    }
+  }
+
+  // If all days for the requested finalDayCount already exist, simply update finalDayCount and return
+  if (missingDayIndices.length === 0) {
+    batch.finalDayCount = finalDayCount;
+    await batch.save();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        batch,
+        posts: existingPosts,
+      },
+    });
+  }
+
+  // Pre-check credits only for the missing days generated in this call (1 credit per post)
+  const creditsNeeded = missingDayIndices.length;
+  if ((req.user.creditBalance || 0) < creditsNeeded) {
     return next(
       new AppError(
-        `Insufficient credits. Generating ${finalDayCount} posts requires ${finalDayCount} credits, but you have ${req.user.creditBalance || 0}.`,
+        `Insufficient credits. Generating ${creditsNeeded} remaining post(s) requires ${creditsNeeded} credits, but you have ${req.user.creditBalance || 0}.`,
         402
       )
     );
@@ -136,9 +172,8 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
     return next(new AppError('Batch record not found.', 404));
   }
 
-  // Step 1: Call external AI and image pipelines first (outside database transaction)
-  const generatedPostsData = [];
-  for (let dayIndex = 1; dayIndex <= finalDayCount; dayIndex++) {
+  // Generate missing days sequentially. Save & charge per day (Fix 4: resumable partial batch generation)
+  for (const dayIndex of missingDayIndices) {
     const { caption, hashtags } = await aiService.generatePostContent(
       batchWithStrategy.elaboratedStrategy,
       dayIndex,
@@ -152,73 +187,70 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
       provider: req.user.imageGenProvider,
     });
 
-    generatedPostsData.push({
-      batchId: batch._id,
-      userId: req.user._id,
-      dayIndex,
-      caption,
-      hashtags: hashtags || [],
-      image: imageData,
-      editHistory: [],
-      regenerationCount: 0,
-      // Note: scheduledTime is required in the Post schema; initialize with a tentative placeholder
-      scheduledTime: new Date(Date.now() + dayIndex * 24 * 60 * 60 * 1000),
-      status: 'pending',
-    });
-  }
+    // Save post & charge 1 credit in an atomic transaction for this successfully generated day
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const user = await User.findById(req.user._id).session(session);
+      if ((user.creditBalance || 0) < 1) {
+        throw new AppError('Insufficient credits to complete post generation.', 402);
+      }
 
-  // Step 2: Now that all generations succeeded, deduct credits and insert docs atomically
-  // Note: Multi-document transactions require a MongoDB replica set (even a single-node replica set).
-  const session = await mongoose.startSession();
-  session.startTransaction();
+      user.creditBalance -= 1;
+      await user.save({ session });
 
-  let createdPosts;
-  try {
-    const user = await User.findById(req.user._id).session(session);
-    if (user.creditBalance < finalDayCount) {
-      throw new AppError('Insufficient credits to complete post generation.', 402);
+      const [newPost] = await Post.create(
+        [
+          {
+            batchId: batch._id,
+            userId: req.user._id,
+            dayIndex,
+            caption,
+            hashtags: hashtags || [],
+            image: imageData,
+            editHistory: [],
+            regenerationCount: 0,
+            scheduledTime: new Date(Date.now() + dayIndex * 24 * 60 * 60 * 1000),
+            status: 'pending',
+          },
+        ],
+        { session }
+      );
+
+      await CreditTransaction.create(
+        [
+          {
+            userId: user._id,
+            postId: newPost._id,
+            reason: 'generation',
+            amount: -1,
+            balanceAfter: user.creditBalance,
+            note: `Generated post for day ${dayIndex} of batch ${batch._id}`,
+          },
+        ],
+        { session }
+      );
+
+      await session.commitTransaction();
+    } catch (dayError) {
+      await session.abortTransaction();
+      throw dayError;
+    } finally {
+      session.endSession();
     }
-
-    user.creditBalance -= finalDayCount;
-    await user.save({ session });
-
-    // Record credit transaction
-    await CreditTransaction.create(
-      [
-        {
-          userId: user._id,
-          reason: 'generation',
-          amount: -finalDayCount,
-          balanceAfter: user.creditBalance,
-          note: `Generated ${finalDayCount} posts for batch ${batch._id}`,
-        },
-      ],
-      { session }
-    );
-
-    // Clean up any previously generated draft posts for this batch
-    await Post.deleteMany({ batchId: batch._id }).session(session);
-
-    // Insert new posts
-    createdPosts = await Post.insertMany(generatedPostsData, { session });
-
-    // Update batch day count
-    batch.finalDayCount = finalDayCount;
-    await batch.save({ session });
-
-    await session.commitTransaction();
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
   }
+
+  // Update batch finalDayCount once all missing days have completed
+  batch.finalDayCount = finalDayCount;
+  await batch.save();
+
+  const allPosts = await Post.find({ batchId: batch._id }).sort({ dayIndex: 1 });
 
   res.status(200).json({
     success: true,
     data: {
       batch,
-      posts: createdPosts,
+      posts: allPosts,
     },
   });
 });
@@ -240,6 +272,15 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
     return next(
       new AppError(
         'Cannot confirm batch: no posts have been generated yet. Please set day count first.',
+        400
+      )
+    );
+  }
+
+  if (batch.finalDayCount && posts.length < batch.finalDayCount) {
+    return next(
+      new AppError(
+        `Cannot confirm batch: only ${posts.length} of ${batch.finalDayCount} posts have been generated. Please complete post generation first.`,
         400
       )
     );

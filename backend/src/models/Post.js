@@ -49,7 +49,7 @@ const postSchema = new Schema(
     scheduledTime: { type: Date, required: true, index: true },
     status: {
       type: String,
-      enum: ['pending', 'posted', 'failed'],
+      enum: ['pending', 'processing', 'posted', 'failed'],
       default: 'pending',
       index: true,
     },

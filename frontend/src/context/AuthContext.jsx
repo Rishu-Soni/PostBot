@@ -1,137 +1,93 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { authService } from '../services/authService';
+import { getToken, setToken } from '../services/api';
 
 const AuthContext = createContext(null);
 
-const TOKEN_KEY = 'postbot_token';
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
-  const [loading, setLoading] = useState(true);
-  const [mockMode, setMockMode] = useState(false);
+  const [token, setTokenState] = useState(getToken());
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Detect backend mock mode
-  useEffect(() => {
-    fetch('/api/config')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && typeof data.mockMode === 'boolean') {
-          setMockMode(data.mockMode);
-        }
-      })
-      .catch(() => {});
+  const logout = useCallback(() => {
+    setToken(null);
+    setTokenState(null);
+    setUser(null);
   }, []);
 
-  // Initialize and verify authentication state on mount
+  const refreshUser = useCallback(async () => {
+    const currentToken = getToken();
+    if (!currentToken) {
+      setUser(null);
+      setIsLoading(false);
+      return null;
+    }
+
+    try {
+      const userData = await authService.getMe();
+      setUser(userData);
+      return userData;
+    } catch (err) {
+      console.error('Failed to load user profile:', err);
+      logout();
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [logout]);
+
   useEffect(() => {
-    const initAuth = async () => {
-      const storedToken = localStorage.getItem(TOKEN_KEY);
+    refreshUser();
 
-      if (!storedToken) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${storedToken}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user);
-          setToken(storedToken);
-        } else {
-          // Token is expired or invalid
-          localStorage.removeItem(TOKEN_KEY);
-          setUser(null);
-          setToken(null);
-        }
-      } catch (err) {
-        console.error('Failed to verify authentication session:', err);
-        // On network failure we keep local state or reset gracefully
-        localStorage.removeItem(TOKEN_KEY);
-        setUser(null);
-        setToken(null);
-      } finally {
-        setLoading(false);
-      }
+    const handleUnauthorized = () => {
+      logout();
     };
 
-    initAuth();
-  }, []);
+    window.addEventListener('postbot:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('postbot:unauthorized', handleUnauthorized);
+    };
+  }, [refreshUser, logout]);
 
-  /**
-   * Log in existing user
-   */
   const login = async (email, password) => {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to login. Please try again.');
-    }
-
-    localStorage.setItem(TOKEN_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-    return data.user;
+    const res = await authService.login({ email, password });
+    setToken(res.token);
+    setTokenState(res.token);
+    setUser(res.user);
+    return res.user;
   };
 
-  /**
-   * Sign up new user
-   */
-  const signup = async (name, email, password) => {
-    const response = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name, email, password }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to sign up. Please try again.');
-    }
-
-    localStorage.setItem(TOKEN_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-    return data.user;
+  const register = async (name, email, password) => {
+    const res = await authService.register({ name, email, password });
+    setToken(res.token);
+    setTokenState(res.token);
+    setUser(res.user);
+    return res.user;
   };
 
-  /**
-   * Log out user
-   */
-  const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    setUser(null);
-    setToken(null);
+  const updateUserProfile = async (updates) => {
+    const updated = await authService.updateMe(updates);
+    setUser(updated);
+    return updated;
   };
 
-  const value = {
-    user,
-    token,
-    loading,
-    isAuthenticated: !!user && !!token,
-    mockMode,
-    login,
-    signup,
-    logout,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isAuthenticated: !!token && !!user,
+        isLoading,
+        login,
+        register,
+        logout,
+        refreshUser,
+        updateUserProfile,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {
@@ -141,5 +97,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
-export default AuthContext;

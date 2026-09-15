@@ -1,3 +1,293 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================
+   POSTBOT DESIGN SYSTEM — CSS Custom Properties
+   ============================================================
+   Change any variable below to instantly re-theme the entire app.
+   All components reference these tokens via Tailwind or direct var().
+   ============================================================ */
+
+:root {
+  /* ── Page & Surface Colors ────────────────────────────── */
+  --color-canvas:        #f5ebdd;       /* Main page background (warm sand)      */
+  --color-surface:       #fff8f2;       /* Sidebar, elevated panels              */
+  --color-surface-card:  #ffffff;       /* Cards, modals, form containers        */
+
+  /* ── Border Colors ────────────────────────────────────── */
+  --color-border-warm:   #e2d9cb;       /* Primary borders                       */
+  --color-border-light:  #eedfce;       /* Subtle / secondary borders            */
+
+  /* ── Brand (Primary Blue) ─────────────────────────────── */
+  --color-brand:         #0d65b8;       /* Primary brand blue                    */
+  --color-brand-hover:   #0a5296;       /* Brand hover state                     */
+  --color-brand-soft:    #e7f0fa;       /* Light brand background / active nav   */
+  --color-brand-text:    #0b5398;       /* Brand-colored text                    */
+
+  /* ── Coral (CTA / Action) ─────────────────────────────── */
+  --color-coral:         #f2765e;       /* Primary CTA buttons                   */
+  --color-coral-hover:   #e2624a;       /* CTA hover state                       */
+  --color-coral-soft:    #fdf0ed;       /* Light coral background                */
+  --color-coral-dark:    #c44e38;       /* Coral pressed / dark variant          */
+
+  /* ── Ink (Text) ───────────────────────────────────────── */
+  --color-ink:           #192024;       /* Primary text                          */
+  --color-ink-muted:     #656f77;       /* Secondary / body text                 */
+  --color-ink-subtle:    #8b96a0;       /* Tertiary / placeholder text           */
+
+  /* ── Semantic Colors ──────────────────────────────────── */
+  --color-success:       #16a34a;       /* Green — connected, healthy, posted    */
+  --color-success-soft:  #dcfce7;       /* Light green background                */
+  --color-warning:       #d97706;       /* Amber — draft, caution                */
+  --color-warning-soft:  #fef3c7;       /* Light amber background                */
+  --color-danger:        #dc2626;       /* Red — error, failed, disconnected     */
+  --color-danger-soft:   #fee2e2;       /* Light red background                  */
+  --color-info:          #2563eb;       /* Blue — informational                  */
+  --color-info-soft:     #dbeafe;       /* Light blue background                 */
+
+  /* ── Typography ───────────────────────────────────────── */
+  --font-heading:        'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body:           'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:           'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ── Font Weights ─────────────────────────────────────── */
+  --weight-normal:       400;
+  --weight-medium:       500;
+  --weight-semibold:     600;
+  --weight-bold:         700;
+  --weight-extrabold:    800;
+
+  /* ── Border Radius ────────────────────────────────────── */
+  --radius-sm:           0.375rem;      /* 6px  — small elements                 */
+  --radius-md:           0.5rem;        /* 8px  — inputs, small buttons          */
+  --radius-lg:           0.75rem;       /* 12px — buttons, tags                  */
+  --radius-xl:           1rem;          /* 16px — cards, panels                  */
+  --radius-2xl:          1.25rem;       /* 20px — large cards, modals            */
+  --radius-full:         9999px;        /* Pill shapes, avatars                  */
+
+  /* ── Shadows ──────────────────────────────────────────── */
+  --shadow-sm:           0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md:           0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg:           0 8px 30px rgba(0, 0, 0, 0.08);
+  --shadow-xl:           0 16px 50px rgba(0, 0, 0, 0.1);
+  --shadow-brand:        0 4px 14px rgba(13, 101, 184, 0.15);
+  --shadow-coral:        0 4px 14px rgba(242, 118, 94, 0.2);
+
+  /* ── Transitions ──────────────────────────────────────── */
+  --transition-fast:     150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal:   200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow:     300ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ── Spacing (sidebar width) ──────────────────────────── */
+  --sidebar-width:       16rem;         /* 256px                                 */
+
+  /* ── Gradient Bar (top of auth cards & modals) ────────── */
+  --gradient-bar:        linear-gradient(90deg, #0d65b8 0%, #2e86de 25%, #e74c3c 50%, #f2765e 75%, #f5a623 100%);
+}
+
+
+/* ============================================================
+   BASE STYLES
+   ============================================================ */
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    font-family: var(--font-body);
+    color: var(--color-ink);
+    background-color: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* Headings use the heading font stack */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: var(--weight-bold);
+    color: var(--color-ink);
+  }
+
+  /* Links default to brand color */
+  a {
+    color: var(--color-brand-text);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--color-brand-hover);
+  }
+
+  /* Form element defaults */
+  input, textarea, select {
+    font-family: var(--font-body);
+    color: var(--color-ink);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-ink-subtle);
+  }
+
+  /* Selection colors */
+  ::selection {
+    background: var(--color-brand-soft);
+    color: var(--color-brand);
+  }
+
+  /* ── Custom Scrollbar (warm tones) ────────────────────── */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-warm);
+    border-radius: var(--radius-full);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-subtle);
+  }
+}
+
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+
+@layer utilities {
+  /* ── Dot-Grid Background Pattern ──────────────────────── */
+  .dot-grid {
+    background-color: var(--color-canvas);
+    background-image: radial-gradient(
+      rgba(180, 160, 140, 0.28) 1.5px,
+      transparent 1.5px
+    );
+    background-size: 24px 24px;
+  }
+
+  /* ── Top Gradient Bar (auth cards, modals) ─────────────── */
+  .gradient-bar {
+    position: relative;
+  }
+
+  .gradient-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--gradient-bar);
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  }
+
+  /* ── Warm Card Style ──────────────────────────────────── */
+  .warm-card {
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-warm);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-normal);
+  }
+
+  .warm-card-hover:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--color-border-warm);
+    transform: translateY(-1px);
+  }
+
+  /* ── Surface Panel ────────────────────────────────────── */
+  .surface-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-xl);
+  }
+
+  /* ── Brand Soft Background ────────────────────────────── */
+  .brand-soft {
+    background: var(--color-brand-soft);
+    color: var(--color-brand-text);
+  }
+
+  /* ── Coral Soft Background ────────────────────────────── */
+  .coral-soft {
+    background: var(--color-coral-soft);
+    color: var(--color-coral-dark);
+  }
+
+  /* ── Custom Scroll Container ──────────────────────────── */
+  .custom-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scroll::-webkit-scrollbar-thumb {
+    background: var(--color-border-warm);
+    border-radius: var(--radius-full);
+  }
+
+  /* ── Label Typography ─────────────────────────────────── */
+  .label-uppercase {
+    font-size: 0.6875rem;
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-ink-muted);
+  }
+}
+
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulseSubtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

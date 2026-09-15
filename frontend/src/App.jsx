@@ -1,72 +1,54 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import ProtectedRoute from './components/ProtectedRoute';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import DashboardPage from './pages/DashboardPage';
-import SettingsPage from './pages/SettingsPage';
-import JourneysListPage from './pages/JourneysListPage';
-import NewJourneyPage from './pages/NewJourneyPage';
-import JourneyDetailPage from './pages/JourneyDetailPage';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AppShell } from './components/layout/AppShell';
+import { ProtectedRoute } from './components/layout/ProtectedRoute';
 
-export default function App() {
+// Auth Pages
+import { LoginPage } from './pages/auth/LoginPage';
+import { RegisterPage } from './pages/auth/RegisterPage';
+
+// Main App Pages
+import { DashboardPage } from './pages/dashboard/DashboardPage';
+import { BatchIntakePage } from './pages/batches/BatchIntakePage';
+import { DayCountRecommendPage } from './pages/batches/DayCountRecommendPage';
+import { BatchReviewPage } from './pages/batches/BatchReviewPage';
+import { BatchesListPage } from './pages/batches/BatchesListPage';
+import { BatchDetailPage } from './pages/batches/BatchDetailPage';
+import { CreditsPage } from './pages/credits/CreditsPage';
+import { NotificationsPage } from './pages/notifications/NotificationsPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
+import { LinkedInCallbackPage } from './pages/oauth/LinkedInCallbackPage';
+
+export const App = () => {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          {/* Public authentication routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
+    <Routes>
+      {/* Public Auth Routes */}
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/linkedin/callback" element={<LinkedInCallbackPage />} />
 
-          {/* Protected routes */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/journeys"
-            element={
-              <ProtectedRoute>
-                <JourneysListPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/journeys/new"
-            element={
-              <ProtectedRoute>
-                <NewJourneyPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/journeys/:id"
-            element={
-              <ProtectedRoute>
-                <JourneyDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
+      {/* Protected App Routes inside AppShell */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <AppShell />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/batches" element={<BatchesListPage />} />
+        <Route path="/batches/new" element={<BatchIntakePage />} />
+        <Route path="/batches/:batchId/recommendation" element={<DayCountRecommendPage />} />
+        <Route path="/batches/:batchId/review" element={<BatchReviewPage />} />
+        <Route path="/batches/:batchId" element={<BatchDetailPage />} />
+        <Route path="/credits" element={<CreditsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Route>
 
-          {/* Default redirect to /dashboard (which redirects to /login if unauthenticated) */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+      {/* Catch-all redirect */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
   );
-}
-
+};

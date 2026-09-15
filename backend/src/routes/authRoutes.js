@@ -11,5 +11,6 @@ router.post('/login', validate(loginSchema), authController.login);
 
 // Protected session route
 router.get('/me', auth, authController.getMe);
+router.patch('/me', auth, authController.updateMe);
 
 module.exports = router;
