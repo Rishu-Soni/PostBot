@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { notificationService } from '../../services/notificationService';
+import { Logo } from '../common/Logo';
 
 export const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
@@ -87,11 +88,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
             onClick={handleNavClick}
             className="flex items-center gap-3 font-bold text-ink text-lg tracking-tight group"
           >
-            <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center text-white shadow-sm shadow-brand/20 group-hover:scale-105 transition-transform">
-              <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </div>
+            <Logo size="lg" className="shadow-brand/20 group-hover:scale-105 transition-transform" />
             <div className="flex flex-col">
               <span className="leading-none text-ink">PostBot</span>
               <span className="inline-block px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase text-brand bg-brand-soft rounded border border-brand/20 mt-1 w-fit">

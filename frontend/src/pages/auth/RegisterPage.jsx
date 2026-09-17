@@ -4,6 +4,7 @@ import { Sparkles, ArrowRight, Lock, Mail, User, AlertCircle, Eye, EyeOff, Shiel
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { LinkedInIcon } from '../../components/common/LinkedInIcon';
+import { Logo } from '../../components/common/Logo';
 
 export const RegisterPage = () => {
   const { register } = useAuth();
@@ -68,11 +69,7 @@ export const RegisterPage = () => {
       {/* Top Navbar */}
       <header className="flex items-center justify-between px-6 py-4">
         <Link to="/" className="flex items-center gap-2.5 font-bold text-ink text-lg tracking-tight">
-          <div className="w-9 h-9 rounded-xl bg-brand flex items-center justify-center text-white shadow-sm">
-            <svg className="w-4.5 h-4.5 fill-current" viewBox="0 0 24 24">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-          </div>
+          <Logo size="md" />
           <span>PostBot</span>
           <span className="text-[10px] font-bold tracking-wider uppercase text-brand bg-brand-soft rounded px-1.5 py-0.5 border border-brand/20">PRO</span>
         </Link>

@@ -15,6 +15,7 @@ import { useCredits } from '../../context/CreditsContext';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { LinkedInIcon } from '../common/LinkedInIcon';
+import { Logo } from '../common/Logo';
 
 export const Navbar = ({ onToggleSidebar }) => {
   const { user, logout } = useAuth();
@@ -40,9 +41,7 @@ export const Navbar = ({ onToggleSidebar }) => {
           </button>
 
           <div className="lg:hidden flex items-center gap-2 font-bold text-ink tracking-tight">
-            <div className="w-7 h-7 rounded-lg bg-brand flex items-center justify-center text-white text-xs shadow-sm">
-              PB
-            </div>
+            <Logo size="sm" />
             <span>PostBot</span>
           </div>
         </div>
