@@ -195,13 +195,15 @@ const searchPixabay = async (query, keywords) => {
   if (!apiKey) return null;
 
   try {
+    const cleanQuery = (query || '').trim().slice(0, 100);
     const response = await axios.get('https://pixabay.com/api/', {
       params: {
         key: apiKey,
-        q: query,
+        q: cleanQuery,
         per_page: 10,
         image_type: 'photo',
         orientation: 'horizontal',
+        safesearch: 'true',
       },
       timeout: 5000,
     });
