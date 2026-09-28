@@ -4,7 +4,6 @@ import {
   Sparkles,
   ArrowRight,
   Zap,
-  Mic,
   ListPlus,
   Check,
   CheckCircle2,
@@ -73,23 +72,6 @@ export const BatchIntakePage = () => {
     };
   }, [isSubmitting]);
 
-  const handlePasteVoiceMemo = async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-          setBrainDump((prev) => (prev ? `${prev}\n\n${text}` : text));
-          showToast('Pasted transcript from clipboard!', 'success');
-          return;
-        }
-      }
-    } catch {
-      // Clipboard permissions denied, fallback to sample voice note
-    }
-    const sampleMemo = `[Voice Memo Transcript]: This week we noticed a big issue with user dropoff at the billing step. We removed the extra form fields, cached company profiles, and checkout conversion immediately jumped 2x. Biggest lesson: stop asking for info you can automatically detect.`;
-    setBrainDump((prev) => (prev ? `${prev}\n\n${sampleMemo}` : sampleMemo));
-    showToast('Inserted voice memo template', 'info');
-  };
 
   const handleInsertBulletTemplate = () => {
     const template = `• What we shipped / built this week:\n• Surprising customer metric or feedback:\n• One painful mistake or lesson learned:\n• What we are doubling down on next week:`;
@@ -164,7 +146,7 @@ export const BatchIntakePage = () => {
               </span>
             </div>
             <p className="text-xs text-ink-muted">
-              Type or paste bullet points, voice note transcripts, wins, customer feedback, bugs, or lessons from your week. Don&apos;t worry about formatting.
+              Type or paste bullet points, raw ideas, wins, customer feedback, bugs, or lessons from your week. Don&apos;t worry about formatting.
             </p>
 
             <div className="relative group rounded-xl bg-white border border-border-warm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15 transition-all shadow-inner overflow-hidden">
@@ -182,15 +164,6 @@ export const BatchIntakePage = () => {
               {/* Textarea Bottom Utility Bar */}
               <div className="px-4 py-2.5 border-t border-border-light bg-surface/60 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePasteVoiceMemo}
-                    disabled={isSubmitting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink bg-white border border-border-warm hover:bg-surface hover:text-ink transition-colors shadow-2xs cursor-pointer"
-                  >
-                    <Mic className="w-3.5 h-3.5 text-coral" />
-                    <span>Paste Voice Memo</span>
-                  </button>
                   <button
                     type="button"
                     onClick={handleInsertBulletTemplate}

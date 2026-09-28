@@ -11,30 +11,66 @@ import {
   ShieldCheck,
   Loader2,
   AlertTriangle,
+  Calendar as CalendarIcon,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
 } from 'lucide-react';
 import { batchService } from '../../services/batchService';
 import { useCredits } from '../../context/CreditsContext';
 import { useToast } from '../../context/ToastContext';
 
-const DAYS_OF_WEEK = [
-  { id: 1, name: 'Mon' },
-  { id: 2, name: 'Tue' },
-  { id: 3, name: 'Wed' },
-  { id: 4, name: 'Thu' },
-  { id: 5, name: 'Fri' },
-  { id: 6, name: 'Sat' },
-  { id: 7, name: 'Sun' },
-];
-
-const CADENCE_SCHEDULES = {
-  1: { label: 'Wednesday spotlight', activeDays: [3] },
-  2: { label: 'Tuesday, Thursday', activeDays: [2, 4] },
-  3: { label: 'Mon, Wed, Fri', activeDays: [1, 3, 5] },
-  4: { label: 'Mon, Tue, Thu, Fri', activeDays: [1, 2, 4, 5] },
-  5: { label: 'Mon, Tue, Wed, Thu, Fri', activeDays: [1, 2, 3, 4, 5] },
-  6: { label: 'Mon through Sat', activeDays: [1, 2, 3, 4, 5, 6] },
-  7: { label: 'Every Day (Mon - Sun)', activeDays: [1, 2, 3, 4, 5, 6, 7] },
+// Helper: format Date object to 'YYYY-MM-DD'
+const formatDateKey = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
+
+// Helper: format 'YYYY-MM-DD' to friendly string like 'Mon, Sep 21'
+const formatReadableDate = (dateStr) => {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+
+// Helper: generate smart default dates based on preset
+const generatePresetDates = (count, presetType = 'alternating') => {
+  const dates = [];
+  const curr = new Date();
+  curr.setDate(curr.getDate() + 1); // Start tomorrow
+
+  if (presetType === 'weekdays') {
+    while (dates.length < count) {
+      const day = curr.getDay();
+      if (day !== 0 && day !== 6) {
+        dates.push(formatDateKey(curr));
+      }
+      curr.setDate(curr.getDate() + 1);
+    }
+  } else if (presetType === 'daily') {
+    while (dates.length < count) {
+      dates.push(formatDateKey(curr));
+      curr.setDate(curr.getDate() + 1);
+    }
+  } else {
+    // Alternating days (e.g. Mon, Wed, Fri)
+    while (dates.length < count) {
+      dates.push(formatDateKey(curr));
+      curr.setDate(curr.getDate() + 2);
+    }
+  }
+  return dates;
+};
+
+const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export const DayCountRecommendPage = () => {
   const { batchId } = useParams();
@@ -46,6 +82,13 @@ export const DayCountRecommendPage = () => {
   const initialRecommended = location.state?.recommendedDayCount || 5;
   const [recommendedDayCount, setRecommendedDayCount] = useState(initialRecommended);
   const [selectedDayCount, setSelectedDayCount] = useState(initialRecommended);
+  const [selectedDates, setSelectedDates] = useState(() =>
+    generatePresetDates(initialRecommended, 'alternating')
+  );
+  const [currentMonthDate, setCurrentMonthDate] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState('');
 
@@ -65,8 +108,14 @@ export const DayCountRecommendPage = () => {
         .getBatchById(batchId)
         .then((res) => {
           if (res?.batch?.recommendedDayCount) {
-            setRecommendedDayCount(res.batch.recommendedDayCount);
-            setSelectedDayCount(res.batch.finalDayCount || res.batch.recommendedDayCount);
+            const rec = res.batch.recommendedDayCount;
+            const finalCount = res.batch.finalDayCount || rec;
+            setRecommendedDayCount(rec);
+            setSelectedDayCount(finalCount);
+            setSelectedDates((prev) => {
+              if (prev.length === finalCount) return prev;
+              return generatePresetDates(finalCount, 'alternating');
+            });
           }
         })
         .catch((err) => {
@@ -77,19 +126,113 @@ export const DayCountRecommendPage = () => {
 
   const handleDecrement = () => {
     if (selectedDayCount > minDays) {
-      setSelectedDayCount((prev) => prev - 1);
+      const nextCount = selectedDayCount - 1;
+      setSelectedDayCount(nextCount);
+      setSelectedDates((prev) => prev.slice(0, nextCount));
     }
   };
 
   const handleIncrement = () => {
     if (selectedDayCount < maxDays) {
-      setSelectedDayCount((prev) => prev + 1);
+      const nextCount = selectedDayCount + 1;
+      setSelectedDayCount(nextCount);
+      setSelectedDates((prev) => {
+        if (prev.length >= nextCount) return prev.slice(0, nextCount);
+        let nextDate;
+        if (prev.length > 0) {
+          const lastStr = prev[prev.length - 1];
+          const [y, m, d] = lastStr.split('-').map(Number);
+          const dt = new Date(y, m - 1, d);
+          dt.setDate(dt.getDate() + 2);
+          nextDate = formatDateKey(dt);
+        } else {
+          const dt = new Date();
+          dt.setDate(dt.getDate() + 1);
+          nextDate = formatDateKey(dt);
+        }
+        return [...prev, nextDate].sort();
+      });
     }
   };
+
+  const todayKey = formatDateKey(new Date());
+
+  // Month navigation logic
+  const year = currentMonthDate.getFullYear();
+  const month = currentMonthDate.getMonth();
+  const monthLabel = currentMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const isCurrentMonthOrPast = () => {
+    const now = new Date();
+    return year < now.getFullYear() || (year === now.getFullYear() && month <= now.getMonth());
+  };
+
+  const goToPrevMonth = () => {
+    if (!isCurrentMonthOrPast()) {
+      setCurrentMonthDate(new Date(year, month - 1, 1));
+    }
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonthDate(new Date(year, month + 1, 1));
+  };
+
+  const handleDateClick = (dateKey) => {
+    if (dateKey < todayKey) return;
+
+    if (selectedDates.includes(dateKey)) {
+      if (selectedDates.length > 1) {
+        setSelectedDates((prev) => prev.filter((d) => d !== dateKey));
+      } else {
+        showToast('At least one date must remain selected.', 'info');
+      }
+    } else {
+      if (selectedDates.length < selectedDayCount) {
+        setSelectedDates((prev) => [...prev, dateKey].sort());
+      } else {
+        // If already at selectedDayCount, replace the last date
+        const updated = [...selectedDates.slice(0, selectedDayCount - 1), dateKey].sort();
+        setSelectedDates(updated);
+      }
+    }
+  };
+
+  const handleUpdateSinglePostDate = (index, newDateKey) => {
+    if (!newDateKey) return;
+    if (newDateKey < todayKey) {
+      showToast('Cannot schedule posts in the past.', 'warning');
+      return;
+    }
+    setSelectedDates((prev) => {
+      const copy = [...prev];
+      copy[index] = newDateKey;
+      return copy.sort();
+    });
+  };
+
+  const applyPreset = (presetType) => {
+    const dates = generatePresetDates(selectedDayCount, presetType);
+    setSelectedDates(dates);
+    showToast(`Applied ${presetType} schedule preset`, 'info');
+  };
+
+  // Calendar math
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const blankDays = Array.from({ length: firstDayIndex });
+  const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   const handleGenerate = async () => {
     if (!hasEnoughCredits) {
       showToast(`Insufficient credits. You need ${creditsNeeded} credits, but have ${creditBalance}.`, 'error');
+      return;
+    }
+
+    if (selectedDates.length !== selectedDayCount) {
+      showToast(
+        `Please select exactly ${selectedDayCount} dates (currently ${selectedDates.length} selected).`,
+        'warning'
+      );
       return;
     }
 
@@ -100,7 +243,7 @@ export const DayCountRecommendPage = () => {
       setTimeout(() => setGenerationStep('Generating high-converting post hooks and captions...'), 1400);
       setTimeout(() => setGenerationStep('Selecting matching visual imagery...'), 3000);
 
-      const res = await batchService.updateDayCount(batchId, selectedDayCount);
+      const res = await batchService.updateDayCount(batchId, selectedDayCount, selectedDates);
       refreshBalance();
       showToast(`Successfully generated ${selectedDayCount} days of content!`, 'success');
       navigate(`/batches/${batchId}/review`, { state: { batch: res.batch, posts: res.posts } });
@@ -109,8 +252,6 @@ export const DayCountRecommendPage = () => {
       setIsGenerating(false);
     }
   };
-
-  const activeSchedule = CADENCE_SCHEDULES[selectedDayCount] || CADENCE_SCHEDULES[5];
 
   return (
     <div className="max-w-xl mx-auto space-y-8 animate-fade-in py-6">
@@ -124,7 +265,7 @@ export const DayCountRecommendPage = () => {
           Day-Count Recommendation
         </h1>
         <p className="text-sm text-ink-muted max-w-md font-normal leading-relaxed">
-          Based on the depth of your brain dump, here is the ideal weekly post cadence for maximum LinkedIn reach.
+          Based on the depth of your brain dump, choose your cadence and select any dates you want to schedule your posts.
         </p>
       </div>
 
@@ -148,7 +289,7 @@ export const DayCountRecommendPage = () => {
         </div>
 
         {/* Schedule Selector Controls */}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {/* Bound labels & title */}
           <div className="flex items-center justify-between text-xs font-semibold text-ink-muted px-1">
             <span>Min: {minDays} days</span>
@@ -159,7 +300,7 @@ export const DayCountRecommendPage = () => {
           </div>
 
           {/* Stepper Container */}
-          <div className="bg-surface border border-border-warm rounded-xl p-4 flex items-center justify-between">
+          <div className="bg-surface border border-border-warm rounded-xl p-4 flex items-center justify-between shadow-2xs">
             {/* Minus Button */}
             <button
               type="button"
@@ -193,30 +334,168 @@ export const DayCountRecommendPage = () => {
             </button>
           </div>
 
-          {/* Visual Cadence Schedule Indicator */}
-          <div className="mt-2 px-1">
-            <div className="flex items-center justify-between text-[11px] font-medium text-ink-muted mb-1.5">
-              <span>Active distribution preview:</span>
-              <span className="text-brand font-semibold">{activeSchedule.label}</span>
+          {/* Interactive Date Selection Section */}
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-brand" />
+                <span className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Schedule Dates
+                </span>
+              </div>
+              <span
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                  selectedDates.length === selectedDayCount
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+              >
+                {selectedDates.length} of {selectedDayCount} dates selected
+              </span>
             </div>
 
-            {/* 7 Day Dot Indicator */}
-            <div className="grid grid-cols-7 gap-1.5 text-center">
-              {DAYS_OF_WEEK.map((day) => {
-                const isActive = activeSchedule.activeDays.includes(day.id);
-                return (
-                  <div
-                    key={day.id}
-                    className={`py-1 rounded text-[10px] font-bold transition-all ${
-                      isActive
-                        ? 'bg-brand text-white shadow-2xs'
-                        : 'bg-stone-200/80 text-ink-subtle'
-                    }`}
+            <p className="text-xs text-ink-muted">
+              Click any date on the calendar to customize your publishing schedule.
+            </p>
+
+            {/* Interactive Mini Calendar Box */}
+            <div className="bg-white border border-border-warm rounded-2xl p-4 shadow-xs space-y-3">
+              {/* Calendar Header: Month + Navigation */}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-sm font-bold text-ink tracking-tight">{monthLabel}</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={goToPrevMonth}
+                    disabled={isCurrentMonthOrPast()}
+                    aria-label="Previous Month"
+                    className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
                   >
-                    {day.name}
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextMonth}
+                    aria-label="Next Month"
+                    className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm transition-colors cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Weekday Headers */}
+              <div className="grid grid-cols-7 gap-1 text-center">
+                {WEEKDAY_NAMES.map((name) => (
+                  <div key={name} className="text-[11px] font-bold text-ink-muted py-0.5">
+                    {name}
                   </div>
-                );
-              })}
+                ))}
+              </div>
+
+              {/* Calendar Grid Days */}
+              <div className="grid grid-cols-7 gap-1 text-center">
+                {blankDays.map((_, i) => (
+                  <div key={`blank-${i}`} className="h-9" />
+                ))}
+
+                {monthDays.map((dayNum) => {
+                  const dateObj = new Date(year, month, dayNum);
+                  const dateKey = formatDateKey(dateObj);
+                  const isPast = dateKey < todayKey;
+                  const isToday = dateKey === todayKey;
+                  const isSelected = selectedDates.includes(dateKey);
+                  const postIndex = selectedDates.indexOf(dateKey);
+
+                  return (
+                    <button
+                      key={dateKey}
+                      type="button"
+                      disabled={isPast || isGenerating}
+                      onClick={() => handleDateClick(dateKey)}
+                      className={`relative h-9 rounded-xl text-xs font-semibold flex flex-col items-center justify-center transition-all ${
+                        isPast
+                          ? 'text-ink-subtle opacity-30 cursor-not-allowed'
+                          : isSelected
+                          ? 'bg-brand text-white shadow-sm ring-2 ring-brand/25 font-bold cursor-pointer scale-105 z-10'
+                          : isToday
+                          ? 'border border-brand text-brand hover:bg-brand-soft cursor-pointer'
+                          : 'text-ink hover:bg-brand-soft/60 hover:text-brand cursor-pointer'
+                      }`}
+                    >
+                      <span>{dayNum}</span>
+                      {isSelected && (
+                        <span className="text-[8px] leading-none opacity-85 font-mono">
+                          P{postIndex + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="pt-2 border-t border-border-light flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-medium text-ink-muted mr-1">Quick Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => applyPreset('alternating')}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
+                >
+                  Alternating Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPreset('weekdays')}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
+                >
+                  Consecutive Weekdays
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPreset('daily')}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
+                >
+                  Daily
+                </button>
+              </div>
+            </div>
+
+            {/* Configured Dates List */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-ink">Configured Post Dates</span>
+                {selectedDates.length < selectedDayCount && (
+                  <span className="text-[11px] text-amber-700 font-medium">
+                    Select {selectedDayCount - selectedDates.length} more date(s) on the calendar
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
+                {selectedDates.map((dateStr, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2.5 bg-surface border border-border-warm rounded-xl text-xs hover:border-brand/40 transition-colors shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-5 h-5 rounded-full bg-brand text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span className="font-semibold text-ink truncate">
+                        {formatReadableDate(dateStr)}
+                      </span>
+                    </div>
+                    <input
+                      type="date"
+                      value={dateStr}
+                      min={todayKey}
+                      onChange={(e) => handleUpdateSinglePostDate(idx, e.target.value)}
+                      className="text-[11px] text-ink bg-white border border-border-warm rounded-lg px-2 py-1 focus:ring-1 focus:ring-brand focus:border-brand cursor-pointer shadow-2xs font-medium shrink-0"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -289,7 +568,7 @@ export const DayCountRecommendPage = () => {
           <button
             type="button"
             onClick={handleGenerate}
-            disabled={isGenerating || !hasEnoughCredits}
+            disabled={isGenerating || !hasEnoughCredits || selectedDates.length !== selectedDayCount}
             className="w-full sm:w-auto px-6 py-2.5 bg-coral hover:bg-coral-hover text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isGenerating ? (

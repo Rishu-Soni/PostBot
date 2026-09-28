@@ -103,7 +103,7 @@ const getBatch = asyncHandler(async (req, res) => {
  */
 const updateDayCount = asyncHandler(async (req, res, next) => {
   const batch = req.batchIdDoc;
-  const { finalDayCount } = req.body;
+  const { finalDayCount, scheduledDates } = req.body;
 
   if (batch.status !== 'draft') {
     return next(new AppError('Day count can only be adjusted while batch is in draft status.', 400));
@@ -146,6 +146,18 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
     batch.finalDayCount = finalDayCount;
     await batch.save();
 
+    if (Array.isArray(scheduledDates)) {
+      for (const p of existingPosts) {
+        if (scheduledDates[p.dayIndex - 1]) {
+          const d = new Date(scheduledDates[p.dayIndex - 1]);
+          if (!isNaN(d.getTime())) {
+            p.scheduledTime = d;
+            await p.save();
+          }
+        }
+      }
+    }
+
     return res.status(200).json({
       success: true,
       data: {
@@ -180,12 +192,8 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
       finalDayCount
     );
 
-    const imageData = await imageService.findOrGenerateImage({
-      caption,
-      topic: batch.intake.theme,
-      userKey: req.user.imageGenApiKey,
-      provider: req.user.imageGenProvider,
-    });
+    // Images are no longer auto-generated — users choose to upload or generate on the review page
+    const imageData = null;
 
     // Save post & charge 1 credit in an atomic transaction for this successfully generated day
     const session = await mongoose.startSession();
@@ -199,6 +207,17 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
       user.creditBalance -= 1;
       await user.save({ session });
 
+      let postScheduledTime;
+      if (Array.isArray(scheduledDates) && scheduledDates[dayIndex - 1]) {
+        const d = new Date(scheduledDates[dayIndex - 1]);
+        if (!isNaN(d.getTime())) {
+          postScheduledTime = d;
+        }
+      }
+      if (!postScheduledTime) {
+        postScheduledTime = new Date(Date.now() + dayIndex * 24 * 60 * 60 * 1000);
+      }
+
       const [newPost] = await Post.create(
         [
           {
@@ -210,7 +229,7 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
             image: imageData,
             editHistory: [],
             regenerationCount: 0,
-            scheduledTime: new Date(Date.now() + dayIndex * 24 * 60 * 60 * 1000),
+            scheduledTime: postScheduledTime,
             status: 'pending',
           },
         ],
@@ -286,12 +305,12 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
     );
   }
 
-  // Reject if any post is missing caption or image
+  // Reject if any post is missing a caption (images are optional — text-only posts are valid on LinkedIn)
   for (const post of posts) {
-    if (!post.caption || !post.image || !post.image.url) {
+    if (!post.caption) {
       return next(
         new AppError(
-          `Post for day ${post.dayIndex} is missing caption or image. All posts must be complete before confirming.`,
+          `Post for day ${post.dayIndex} is missing a caption. All posts must have a caption before confirming.`,
           400
         )
       );
@@ -310,11 +329,17 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
     nowInUserTz = DateTime.now().setZone('UTC');
   }
 
-  // Compute scheduledTime per post: dayIndex days from now in user's timezone at preferred post time
+  // Compute scheduledTime per post: preserve user-chosen scheduledTime date if present
   for (const post of posts) {
-    const scheduledDt = nowInUserTz
-      .plus({ days: post.dayIndex })
-      .set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+    let scheduledDt;
+    if (post.scheduledTime && !isNaN(new Date(post.scheduledTime).getTime())) {
+      const dt = DateTime.fromJSDate(new Date(post.scheduledTime)).setZone(userTimezone);
+      scheduledDt = dt.set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+    } else {
+      scheduledDt = nowInUserTz
+        .plus({ days: post.dayIndex })
+        .set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+    }
 
     post.scheduledTime = scheduledDt.toJSDate();
     post.status = 'pending';

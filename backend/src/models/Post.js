@@ -27,7 +27,7 @@ const postSchema = new Schema(
       source: {
         type: String,
         enum: ['user_upload', 'stock', 'ai_generated'],
-        required: true,
+        default: null,
       },
       stockProvider: { type: String, default: null }, // "unsplash" | "pexels" | "pixabay", if source === "stock"
       aiProvider: { type: String, default: null }, // "user_key" | "platform_default", if source === "ai_generated"

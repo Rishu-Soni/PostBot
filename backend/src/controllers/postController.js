@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { Post, User, CreditTransaction } = require('../models');
+const { Post, User, CreditTransaction, ContentBatch } = require('../models');
 const aiService = require('../services/aiService');
 const imageService = require('../services/imageService');
 const linkedinService = require('../services/linkedinService');
@@ -26,7 +26,7 @@ const getPost = asyncHandler(async (req, res) => {
  */
 const updatePost = asyncHandler(async (req, res, next) => {
   const post = req.postIdDoc;
-  const { caption, hashtags } = req.body;
+  const { caption, hashtags, image } = req.body;
 
   if (post.status !== 'pending') {
     return next(new AppError('Only pending posts can be manually edited.', 400));
@@ -40,6 +40,11 @@ const updatePost = asyncHandler(async (req, res, next) => {
   if (hashtags !== undefined) {
     post.hashtags = hashtags;
     fieldEdited = 'hashtags';
+  }
+  // Allow removing image by setting it to null (text-only post)
+  if (image === null) {
+    post.image = null;
+    fieldEdited = 'image';
   }
 
   post.editHistory.push({
@@ -66,7 +71,7 @@ const updatePost = asyncHandler(async (req, res, next) => {
  */
 const regenerate = asyncHandler(async (req, res, next) => {
   const post = req.postIdDoc;
-  const { part } = req.body;
+  const { part, source } = req.body;
 
   if (post.status !== 'pending') {
     return next(new AppError('Only pending posts can be regenerated.', 400));
@@ -95,12 +100,28 @@ const regenerate = asyncHandler(async (req, res, next) => {
   }
 
   if (part === 'image' || part === 'whole') {
-    regeneratedImage = await imageService.findOrGenerateImage({
-      caption: regeneratedCaption,
-      topic: 'LinkedIn Post',
-      userKey: req.user.imageGenApiKey,
-      provider: req.user.imageGenProvider,
-    });
+    let topic = 'LinkedIn Post';
+    if (post.batchId) {
+      const batchDoc = await ContentBatch.findById(post.batchId);
+      if (batchDoc?.theme) topic = batchDoc.theme;
+    }
+
+    if (source === 'ai') {
+      // Direct AI image generation — uses the post caption as context for the prompt
+      regeneratedImage = await imageService.generateAIImage(
+        topic,
+        regeneratedCaption,
+        req.user.imageGenApiKey
+      );
+    } else {
+      // Default: search stock providers first, fall back to AI
+      regeneratedImage = await imageService.findOrGenerateImage({
+        caption: regeneratedCaption,
+        topic,
+        userKey: req.user.imageGenApiKey,
+        provider: req.user.imageGenProvider,
+      });
+    }
   }
 
   // Step 2: Now that external generation succeeded, deduct credit & update post atomically

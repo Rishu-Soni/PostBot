@@ -102,34 +102,6 @@ in `backend/.env`. PostBot will automatically use an in-memory `ioredis-mock` ad
 | :--- | :--- |
 | `npm run dev` | Runs the development server with Nodemon (`src/server.js`). |
 | `npm start` | Runs the production backend server (`node src/server.js`). |
-| `npm test` | Runs the Jest test suite with in-memory MongoDB. |
-| `npm run test:coverage` | Runs Jest with test coverage reporting. |
-| `npm run worker` | Runs the background worker process (`src/jobs/worker.js`). |
-| `npm run seed:test-user` | Seeds a ready-to-use local manual test account (`test@postbot.local`) with sample journey and entries. |
-
-### Manual Testing (Local Test Account)
-
-To explore and manually click through the full application without manually registering or needing real LinkedIn / third-party API credentials, you can run the dev-only seed script:
-
-```bash
-cd backend
-npm run seed:test-user
-```
-
-This creates or updates a test account with:
-- **Email**: `test@postbot.local`
-- **Password**: `DevTestPassword123!` (printed in console upon execution)
-- **LinkedIn Connection**: If `MOCK_EXTERNAL_APIS=true` is set in `backend/.env`, the user's account is automatically pre-configured with valid-shaped mock tokens, showing as **"Connected"** on the Settings page without requiring any manual OAuth flow.
-- **Sample Data**: 1 active posting Journey with a realistic template and 3 Daily Entries in different statuses:
-  - **Day 1**: `posted` (with sample generated text, image, and LinkedIn post URN)
-  - **Day 2**: `generated` (with sample generated text and image ready for review)
-  - **Day 3**: `planned` (scheduled for upcoming posting)
-
-> [!WARNING]
-> **Security Notice**: This account and fixed password are for **local manual testing ONLY**.
-> - The script refuses to run if `NODE_ENV === 'production'`.
-> - Never seed this account into a production database.
-> - The fixed password is for local developer convenience and must **never** be treated as a real security boundary.
 
 ### Frontend (`cd frontend`)
 
@@ -138,8 +110,6 @@ This creates or updates a test account with:
 | `npm run dev` | Starts the Vite development server on `http://localhost:5173`. |
 | `npm run build` | Builds the frontend production assets into `dist/`. |
 | `npm run preview` | Previews the production build locally. |
-| `npm test` | Runs the Vitest test suite. |
-| `npm run test:coverage` | Runs Vitest with coverage report. |
 
 ---
 

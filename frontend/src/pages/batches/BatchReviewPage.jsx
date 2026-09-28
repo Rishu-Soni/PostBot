@@ -99,6 +99,68 @@ export const BatchReviewPage = () => {
     setActiveEditingPost(updatedPost);
   };
 
+  // Upload an image file directly to a post (free, no credit cost)
+  const handleUploadImage = async (post, file) => {
+    if (!post || !file) return;
+    setBusyPosts((prev) => ({ ...prev, [post._id]: 'Uploading image...' }));
+    try {
+      const updatedPost = await postService.uploadImage(post._id, file);
+      setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
+      showToast('Image uploaded successfully! (0 credits)', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to upload image.', 'error');
+    } finally {
+      setBusyPosts((prev) => {
+        const copy = { ...prev };
+        delete copy[post._id];
+        return copy;
+      });
+    }
+  };
+
+  // Generate an AI image for a post (costs 1 credit, uses the existing regenerate endpoint)
+  const handleGenerateImage = async (post) => {
+    if (!post) return;
+    if (creditBalance < 1) {
+      showToast('Insufficient credits. AI image generation costs 1 credit.', 'error');
+      return;
+    }
+    setBusyPosts((prev) => ({ ...prev, [post._id]: 'Generating AI image...' }));
+    try {
+      const updatedPost = await postService.regeneratePost(post._id, 'image', 'ai');
+      setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
+      refreshBalance();
+      showToast('AI image generated! (1 credit spent)', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to generate AI image.', 'error');
+    } finally {
+      setBusyPosts((prev) => {
+        const copy = { ...prev };
+        delete copy[post._id];
+        return copy;
+      });
+    }
+  };
+
+  // Remove image from a post (set to null, text-only)
+  const handleRemoveImage = async (post) => {
+    if (!post) return;
+    setBusyPosts((prev) => ({ ...prev, [post._id]: 'Removing image...' }));
+    try {
+      const updatedPost = await postService.updatePost(post._id, { image: null });
+      setPosts((prev) => prev.map((p) => (p._id === updatedPost._id ? updatedPost : p)));
+      showToast('Image removed. Post will be scheduled as text-only.', 'info');
+    } catch (err) {
+      showToast(err.message || 'Failed to remove image.', 'error');
+    } finally {
+      setBusyPosts((prev) => {
+        const copy = { ...prev };
+        delete copy[post._id];
+        return copy;
+      });
+    }
+  };
+
   // Confirm and schedule batch
   const handleConfirmSchedule = async () => {
     if (!isLinkedInConnected) {
@@ -215,7 +277,9 @@ export const BatchReviewPage = () => {
               onRetryMissing={handleRetryMissingDay}
               onEdit={handleEdit}
               onRegenerate={handleRegenerate}
-              onUploadImage={handleEdit}
+              onUploadImage={handleUploadImage}
+              onGenerateImage={handleGenerateImage}
+              onRemoveImage={handleRemoveImage}
               isBusy={isBusy}
               busyActionText={busyText}
             />

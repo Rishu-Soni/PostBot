@@ -40,6 +40,7 @@ const updateDayCountSchema = Joi.object({
       'number.base': 'finalDayCount must be a number',
       'number.min': 'finalDayCount must be at least 1',
     }),
+    scheduledDates: Joi.array().items(Joi.string().isoDate(), Joi.string()).optional(),
   }).required(),
 });
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail, AlertCircle, Eye, EyeOff, ShieldCheck, Zap } from 'lucide-react';
+import { Sparkles, ArrowRight, Lock, Mail, AlertCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { LinkedInIcon } from '../../components/common/LinkedInIcon';
@@ -168,59 +168,6 @@ export const LoginPage = () => {
                   Sign In to Account
                 </Button>
               </form>
-
-              {/* Dashed Divider */}
-              <div className="my-5 border-t border-dashed border-border-warm" />
-
-              {/* Quick Demo Access Box */}
-              <div className="p-4 rounded-xl bg-canvas border border-border-light space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-brand" />
-                    <span>Quick Demo Access</span>
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200 font-semibold">
-                    All Features Unlocked
-                  </span>
-                </div>
-                <div className="text-[11px] text-ink-muted font-mono space-y-1 bg-surface-card p-2.5 rounded-lg border border-border-light">
-                  <div className="flex justify-between">
-                    <span className="text-ink-subtle">Email:</span>
-                    <span className="text-ink font-semibold">test@postbot.io</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-subtle">Pass:</span>
-                    <span className="text-ink font-semibold">Password123!</span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-border-light text-[10px]">
-                    <span>Status: <span className="text-green-600 font-semibold">Ready</span></span>
-                    <span>Credits: <span className="text-brand font-semibold">100 Loaded</span></span>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="subtle"
-                  size="sm"
-                  className="w-full text-xs font-semibold py-1.5"
-                  icon={Zap}
-                  onClick={async () => {
-                    setEmail('test@postbot.io');
-                    setPassword('Password123!');
-                    setLoading(true);
-                    setError(null);
-                    try {
-                      await login('test@postbot.io', 'Password123!');
-                      navigate(from, { replace: true });
-                    } catch (err) {
-                      setError(err.message || 'Login failed.');
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                >
-                  Fill Test Credentials
-                </Button>
-              </div>
 
               {/* Footer Link */}
               <div className="mt-6 pt-5 border-t border-border-light text-center">

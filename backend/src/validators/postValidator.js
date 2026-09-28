@@ -29,11 +29,12 @@ const updatePostSchema = Joi.object({
       .messages({
         'array.max': 'A post can have at most 5 candidate hashtags',
       }),
+    image: Joi.any().allow(null).optional(),
   })
-    .or('caption', 'hashtags')
+    .or('caption', 'hashtags', 'image')
     .required()
     .messages({
-      'object.missing': 'At least one field (caption or hashtags) must be provided for manual edit',
+      'object.missing': 'At least one field (caption, hashtags, or image) must be provided for manual edit',
     }),
 });
 
@@ -52,6 +53,7 @@ const regeneratePostSchema = Joi.object({
         'any.required': 'part is required',
         'any.only': "part must be one of: 'caption', 'hashtags', 'image', 'whole'",
       }),
+    source: Joi.string().valid('ai', 'stock').optional(),
   }).required(),
 });
 

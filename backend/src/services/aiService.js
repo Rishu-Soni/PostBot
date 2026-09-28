@@ -8,13 +8,14 @@ const AppError = require('../utils/AppError');
  */
 
 /**
- * Helper to initialize and retrieve OpenAI client.
+ * Helper to initialize and retrieve OpenAI-compatible client.
  * Validates API key at invocation time so the app boots cleanly even without keys.
+ * Supports OpenAI, Mistral AI, Groq, OpenRouter, and any OpenAI-compatible endpoint.
  *
  * @returns {OpenAI}
  */
 const getOpenAIClient = () => {
-  const apiKey = process.env.AI_PROVIDER_API_KEY || process.env.OPENAI_API_KEY;
+  const apiKey = (process.env.AI_PROVIDER_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 
   if (!apiKey) {
     throw new AppError(
@@ -23,7 +24,49 @@ const getOpenAIClient = () => {
     );
   }
 
-  return new OpenAI({ apiKey });
+  let baseURL = (
+    process.env.AI_PROVIDER_BASE_URL ||
+    process.env.AI_BASE_URL ||
+    'https://generativelanguage.googleapis.com/v1beta/openai/'
+  ).trim();
+
+  // If using Google Gemini, route through its official OpenAI compatibility layer
+  if (baseURL.includes('generativelanguage.googleapis.com')) {
+    baseURL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+  }
+
+  return new OpenAI({
+    apiKey,
+    baseURL,
+  });
+};
+
+/**
+ * Resolves the appropriate model name based on provider and env configuration.
+ * Automatically handles Gemini, Mistral, and other providers.
+ *
+ * @returns {string}
+ */
+const getModel = () => {
+  const explicitModel = (process.env.AI_MODEL || process.env.OPENAI_MODEL || '').trim();
+  if (explicitModel) {
+    if (explicitModel === 'gemini-flash-latest') return 'gemini-2.5-flash';
+    return explicitModel;
+  }
+
+  const baseURL = (
+    process.env.AI_PROVIDER_BASE_URL ||
+    process.env.AI_BASE_URL ||
+    ''
+  ).trim();
+
+  if (baseURL.includes('generativelanguage.googleapis.com')) {
+    return 'gemini-2.5-flash';
+  }
+  if (baseURL.includes('mistral.ai')) {
+    return 'mistral-small-latest';
+  }
+  return 'gemini-2.5-flash';
 };
 
 /**
@@ -42,7 +85,8 @@ const elaborateBrainDump = async (intake) => {
   }
 
   const openai = getOpenAIClient();
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = getModel();
+  console.log(`[AI Service] Elaborating brain-dump via endpoint: ${openai.baseURL} (model: ${model})`);
 
   const systemPrompt = `You are an elite LinkedIn ghostwriter and content strategist for tech founders and executives.
 Your mission is to take a founder's raw, unrefined weekly brain-dump and transform it into a structured multi-day LinkedIn content strategy.
@@ -171,7 +215,8 @@ const generatePostContent = async (elaboratedStrategy, dayIndex, totalDays) => {
   }
 
   const openai = getOpenAIClient();
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = getModel();
+  console.log(`[AI Service] Generating post day ${dayIndex}/${totalDays} via endpoint: ${openai.baseURL} (model: ${model})`);
 
   const systemPrompt = `You are a world-class LinkedIn ghostwriter specializing in viral yet high-credibility founder content.
 Generate a complete, publishing-ready LinkedIn post for Day ${dayIndex} of a ${totalDays || 7}-day content series.
@@ -280,7 +325,8 @@ const regeneratePostContent = async (post, part) => {
   }
 
   const openai = getOpenAIClient();
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = getModel();
+  console.log(`[AI Service] Regenerating post section '${part}' via endpoint: ${openai.baseURL} (model: ${model})`);
 
   const systemPrompt = `You are a master LinkedIn content strategist.
 The user wants to regenerate a portion of their LinkedIn post.

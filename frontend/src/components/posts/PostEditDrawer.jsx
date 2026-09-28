@@ -73,7 +73,7 @@ export const PostEditDrawer = ({
     }
   };
 
-  const handleRegenerate = async (part) => {
+  const handleRegenerate = async (part, source) => {
     if (creditBalance < 1) {
       showToast('Insufficient credits. You need at least 1 credit to regenerate.', 'error');
       return;
@@ -82,7 +82,11 @@ export const PostEditDrawer = ({
     setIsRegenerating(true);
     setRegeneratingPart(part);
     try {
-      const updated = await postService.regeneratePost(post._id, part);
+      const updated = await postService.regeneratePost(
+        post._id,
+        part,
+        source || (part === 'image' ? 'ai' : undefined)
+      );
       showToast(`Regenerated ${part} successfully! (1 credit spent)`, 'success');
       refreshBalance();
       if (onPostUpdated) onPostUpdated(updated);
@@ -91,6 +95,16 @@ export const PostEditDrawer = ({
     } finally {
       setIsRegenerating(false);
       setRegeneratingPart(null);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    try {
+      const updated = await postService.updatePost(post._id, { image: null });
+      showToast('Image removed. Post is now text-only.', 'info');
+      if (onPostUpdated) onPostUpdated(updated);
+    } catch (err) {
+      showToast(err.message || 'Failed to remove image.', 'error');
     }
   };
 
@@ -228,36 +242,47 @@ export const PostEditDrawer = ({
                 <ImageIcon className="w-3.5 h-3.5 text-ink-muted" />
                 <span>Post Visual</span>
               </label>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-brand-soft text-brand border border-blue-100">
-                <Sparkles className="w-2.5 h-2.5 fill-brand" />
-                <span>{post.image?.source === 'user_upload' ? 'Your Upload' : post.image?.source === 'ai' ? 'AI Generated' : 'Stock Photo'}</span>
-              </span>
+              {post?.image?.url && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-brand-soft text-brand border border-blue-100">
+                  <Sparkles className="w-2.5 h-2.5 fill-brand" />
+                  <span>
+                    {post.image?.source === 'user_upload'
+                      ? 'Your Upload'
+                      : post.image?.source === 'ai_generated' || post.image?.source === 'ai'
+                      ? 'AI Generated'
+                      : 'Stock Photo'}
+                  </span>
+                </span>
+              )}
             </div>
 
             {/* Visual Preview Card */}
             <div className="relative rounded-xl overflow-hidden border border-border-warm shadow-sm group bg-surface aspect-video max-h-52 w-full">
               {post?.image?.url ? (
-                <img
-                  src={post.image.url}
-                  alt={`Visual for Day ${post.dayIndex}`}
-                  className="w-full h-full object-cover object-center"
-                />
+                <>
+                  <img
+                    src={post.image.url}
+                    alt={`Visual for Day ${post.dayIndex}`}
+                    className="w-full h-full object-cover object-center"
+                  />
+                  <div className="absolute bottom-2 left-2.5 px-2 py-1 bg-black/60 backdrop-blur-md rounded text-[11px] text-white font-medium flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>High Quality (16:9)</span>
+                  </div>
+                </>
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-xs text-ink-subtle">
-                  No visual attached
+                <div className="w-full h-full flex flex-col items-center justify-center text-xs text-ink-subtle gap-1">
+                  <span>No visual attached (text-only post)</span>
+                  <span className="text-[10px]">Upload an image or generate with AI below</span>
                 </div>
               )}
-              <div className="absolute bottom-2 left-2.5 px-2 py-1 bg-black/60 backdrop-blur-md rounded text-[11px] text-white font-medium flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-amber-400" />
-                <span>High Quality (16:9)</span>
-              </div>
             </div>
 
             {/* Action Row: Image Actions */}
             <div className="grid grid-cols-2 gap-2.5 pt-0.5">
               <button
                 type="button"
-                onClick={() => handleRegenerate('image')}
+                onClick={() => handleRegenerate('image', 'ai')}
                 disabled={isRegenerating}
                 className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-border-warm bg-white hover:bg-surface text-xs font-semibold text-ink transition shadow-2xs cursor-pointer disabled:opacity-50"
               >
@@ -266,7 +291,7 @@ export const PostEditDrawer = ({
                 ) : (
                   <Sparkles className="w-3.5 h-3.5 text-brand" />
                 )}
-                <span>Regen Image <span className="text-ink-muted font-normal">(1c)</span></span>
+                <span>Generate with AI <span className="text-ink-muted font-normal">(1c)</span></span>
               </button>
 
               <button
@@ -278,6 +303,19 @@ export const PostEditDrawer = ({
                 <span>Upload Own <span className="text-emerald-700 font-normal">(Free)</span></span>
               </button>
             </div>
+
+            {post?.image?.url && (
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="text-xs text-rose-600 hover:text-rose-700 font-medium hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Remove Visual (Keep as Text-Only Post)</span>
+                </button>
+              </div>
+            )}
 
             {showUploader && (
               <div className="pt-2 animate-fade-in">

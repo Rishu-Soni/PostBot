@@ -256,12 +256,12 @@ const generateAIImage = async (topic, caption, userKey) => {
     );
   }
 
-  const captionSnippet = (caption || topic || 'Professional insight')
-    .slice(0, 160)
+  const captionSnippet = (caption || '')
+    .slice(0, 300)
     .replace(/\s+/g, ' ')
     .trim();
 
-  const prompt = `A clean, modern, professional editorial photograph or conceptual digital art piece for a LinkedIn post. Theme: "${topic || 'Tech & Leadership'}". Context: "${captionSnippet}". Clean composition, natural lighting, high aesthetic quality, strictly NO text overlays, NO typography, NO watermark.`;
+  const prompt = `A clean, modern, high-quality professional editorial visual for a LinkedIn post. Theme: "${topic || 'Tech & Leadership'}". Context based on post caption: "${captionSnippet || 'Professional business and founder insight'}". Clean composition, natural lighting, high aesthetic quality, strictly NO text overlays, NO typography, NO watermark.`;
 
   try {
     const openai = new OpenAI({ apiKey });
@@ -417,5 +417,6 @@ const uploadUserImage = async (fileOrBuffer, mimetypeArg) => {
 
 module.exports = {
   findOrGenerateImage,
+  generateAIImage,
   uploadUserImage,
 };
