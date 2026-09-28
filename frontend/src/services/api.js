@@ -4,7 +4,22 @@
  * response normalization, and error handling.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl) {
+    // In local dev without VITE_API_URL, fallback to Vite dev server proxy
+    return '/api/v1';
+  }
+  // Trim whitespace and trailing slashes
+  const cleanUrl = envUrl.trim().replace(/\/+$/, '');
+  // If user provided origin without /api/v1 (e.g., https://my-backend.railway.app), append /api/v1
+  if (cleanUrl.startsWith('http') && !cleanUrl.endsWith('/api/v1')) {
+    return `${cleanUrl}/api/v1`;
+  }
+  return cleanUrl;
+};
+
+const BASE_URL = getBaseUrl();
 
 class ApiError extends Error {
   constructor(message, status = 500, errors = null, data = null) {

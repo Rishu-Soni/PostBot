@@ -110,7 +110,7 @@ export const LoginPage = () => {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="alex@startup.io"
+                      placeholder="example@example.com"
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-surface-card border border-border-warm text-ink text-sm focus:border-brand focus:ring-1 focus:ring-brand/30 placeholder-ink-subtle transition-all"
                     />
                   </div>
