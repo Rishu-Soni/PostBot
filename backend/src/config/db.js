@@ -1,4 +1,8 @@
 const mongoose = require('mongoose');
+const dns = require('node:dns');
+
+// Force Google DNS to resolve MongoDB SRV records reliably (fixes Windows/ISP querySrv ECONNREFUSED issues)
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 /**
  * Connects to MongoDB replica set using MONGO_URI from environment.
