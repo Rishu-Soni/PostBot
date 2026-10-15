@@ -4,17 +4,19 @@ export const Card = ({
   children,
   className = '',
   hover = false,
+  topGradient = false,
   onClick,
   ...props
 }) => {
-  const baseClasses = 'rounded-2xl border transition-all duration-200';
-  const surfaceClasses = 'bg-surface-card border-border-warm shadow-warm-sm';
-  const hoverClasses = hover ? 'hover:shadow-warm-md hover:border-border-warm cursor-pointer' : '';
+  const baseClasses = 'rounded-[16px] border border-border-warm/60 transition-all duration-200 overflow-hidden';
+  const surfaceClasses = 'bg-[#FFFFFF] shadow-card';
+  const hoverClasses = hover ? 'hover:shadow-lg hover:border-border-warm cursor-pointer' : '';
+  const gradientClasses = topGradient ? 'gradient-bar' : '';
 
   return (
     <div
       onClick={onClick}
-      className={`${baseClasses} ${surfaceClasses} ${hoverClasses} ${className}`}
+      className={`${baseClasses} ${surfaceClasses} ${hoverClasses} ${gradientClasses} ${className}`}
       {...props}
     >
       {children}

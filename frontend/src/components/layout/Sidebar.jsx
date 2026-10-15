@@ -82,19 +82,17 @@ export const Sidebar = ({ isOpen, onClose }) => {
         }`}
       >
         {/* Brand Header */}
-        <div className="flex items-center justify-between h-16 px-6 border-b border-border-light">
+        <div className="flex items-center justify-between h-14 px-5 border-b border-border-light">
           <NavLink
             to="/dashboard"
             onClick={handleNavClick}
-            className="flex items-center gap-3 font-bold text-ink text-lg tracking-tight group"
+            className="flex items-center gap-2 font-bold text-ink text-base tracking-tight"
           >
-            <Logo size="lg" className="shadow-brand/20 group-hover:scale-105 transition-transform" />
-            <div className="flex flex-col">
-              <span className="leading-none text-ink">PostBot</span>
-              <span className="inline-block px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase text-brand bg-brand-soft rounded border border-brand/20 mt-1 w-fit">
-                Founder Edition
-              </span>
-            </div>
+            <Logo size="sm" />
+            <span className="leading-none text-ink">PostBot</span>
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded" style={{ background: '#E2E8F0', color: '#64748B' }}>
+              PRO
+            </span>
           </NavLink>
 
           {/* Close button on mobile */}

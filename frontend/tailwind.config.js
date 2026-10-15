@@ -34,6 +34,8 @@ export default {
           muted: 'var(--color-ink-muted)',
           subtle: 'var(--color-ink-subtle)',
         },
+        navy: '#0A192F',
+        subtext: '#4A5568',
       },
       borderRadius: {
         'sm': 'var(--radius-sm)',
@@ -41,8 +43,10 @@ export default {
         'lg': 'var(--radius-lg)',
         'xl': 'var(--radius-xl)',
         '2xl': 'var(--radius-2xl)',
+        'card': '16px',
       },
       boxShadow: {
+        'card': '0 4px 32px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02)',
         'warm-sm': 'var(--shadow-sm)',
         'warm-md': 'var(--shadow-md)',
         'warm-lg': 'var(--shadow-lg)',

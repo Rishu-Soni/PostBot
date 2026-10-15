@@ -43,6 +43,9 @@ export const Navbar = ({ onToggleSidebar }) => {
           <div className="lg:hidden flex items-center gap-2 font-bold text-ink tracking-tight">
             <Logo size="sm" />
             <span>PostBot</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded" style={{ background: '#E2E8F0', color: '#64748B' }}>
+              PRO
+            </span>
           </div>
         </div>
 
@@ -83,15 +86,6 @@ export const Navbar = ({ onToggleSidebar }) => {
               </span>
             </span>
           </button>
-
-          {/* Quick "New Batch" action button */}
-          <Link
-            to="/batches/new"
-            className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-coral hover:bg-coral-hover text-white shadow-coral transition-all active:scale-[0.98]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Batch</span>
-          </Link>
 
           {/* User profile quick link */}
           <div className="flex items-center pl-2 border-l border-border-warm">

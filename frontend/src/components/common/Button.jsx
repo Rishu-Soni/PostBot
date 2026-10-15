@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 
 const VARIANTS = {
   primary:
-    'bg-coral hover:bg-coral-hover text-white shadow-coral border border-coral/30 active:scale-[0.98]',
+    'bg-[#1E88E5] hover:bg-[#1565C0] text-white font-semibold rounded-[8px] shadow-sm active:scale-[0.98]',
   secondary:
     'bg-brand hover:bg-brand-hover text-white shadow-brand border border-brand/30 active:scale-[0.98]',
   outline:
@@ -17,9 +17,9 @@ const VARIANTS = {
 };
 
 const SIZES = {
-  sm: 'px-3 py-1.5 text-xs rounded-lg gap-1.5',
-  md: 'px-4 py-2 text-sm rounded-xl gap-2',
-  lg: 'px-5 py-2.5 text-base rounded-xl gap-2.5 font-medium',
+  sm: 'px-3 py-1.5 text-xs rounded-[8px] gap-1.5',
+  md: 'px-4 py-2 text-sm rounded-[8px] gap-2',
+  lg: 'px-5 py-3 text-base rounded-[8px] gap-2.5 font-semibold',
 };
 
 export const Button = ({

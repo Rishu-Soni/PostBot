@@ -11,17 +11,17 @@
 
 :root {
   /* ── Page & Surface Colors ────────────────────────────── */
-  --color-canvas: hsl(0, 75%, 98%);
-  /* Main page background (warm sand)      */
-  --color-surface: hsl(0, 75%, 99%);
+  --color-canvas: #FAF9F6;
+  /* Main page background (cream)          */
+  --color-surface: #FEFDFB;
   /* Sidebar, elevated panels              */
-  --color-surface-card: hsl(0, 75%, 99%);
+  --color-surface-card: #FFFFFF;
   /* Cards, modals, form containers        */
 
   /* ── Border Colors ────────────────────────────────────── */
-  --color-border-warm: hsl(0, 75%, 86%);
-  /* Primary borders                       */
-  --color-border-light: hsl(0, 75%, 88%);
+  --color-border-warm: #CBD5E1;
+  /* Primary borders (transitioned away from pink) */
+  --color-border-light: #E2E8F0;
   /* Subtle / secondary borders            */
 
   /* ── Brand (Primary Blue) ─────────────────────────────── */
@@ -114,7 +114,7 @@
   /* 256px                                 */
 
   /* ── Gradient Bar (top of auth cards & modals) ────────── */
-  --gradient-bar: linear-gradient(90deg, hsl(209, 87%, 39%) 0%, hsl(210, 73%, 53%) 25%, hsl(6, 78%, 57%) 50%, hsl(10, 85%, 66%) 75%, hsl(37, 91%, 55%) 100%);
+  --gradient-bar: linear-gradient(to right, #0055ff, #8a2be2, #c71585);
 }
 
 
@@ -207,9 +207,9 @@
   /* ── Dot-Grid Background Pattern ──────────────────────── */
   .dot-grid {
     background-color: var(--color-canvas);
-    background-image: radial-gradient(hsla(0, 75%, 70%, 0.16) 1.6px,
-        transparent 1.6px);
-    background-size: 24px 24px;
+    background-image: radial-gradient(rgba(0, 0, 0, 0.02) 1px,
+        transparent 1px);
+    background-size: 20px 20px;
   }
 
   /* ── Top Gradient Bar (auth cards, modals) ─────────────── */
@@ -225,20 +225,21 @@
     right: 0;
     height: 4px;
     background: var(--gradient-bar);
-    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+    border-radius: 16px 16px 0 0;
+    z-index: 1;
   }
 
   /* ── Warm Card Style ──────────────────────────────────── */
   .warm-card {
-    background: var(--color-surface-card);
+    background: #FFFFFF;
     border: 1px solid var(--color-border-warm);
-    border-radius: var(--radius-2xl);
-    box-shadow: var(--shadow-sm);
+    border-radius: 16px;
+    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
     transition: all var(--transition-normal);
   }
 
   .warm-card-hover:hover {
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 8px 36px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.03);
     border-color: var(--color-border-warm);
     transform: translateY(-1px);
   }
@@ -278,11 +279,32 @@
 
   /* ── Label Typography ─────────────────────────────────── */
   .label-uppercase {
-    font-size: 0.6875rem;
-    font-weight: var(--weight-semibold);
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--color-ink-muted);
+    letter-spacing: 0.05em;
+    color: #2D3748;
+  }
+
+  /* ── Form Input Clean ─────────────────────────────────── */
+  .form-input-clean {
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.875rem;
+    color: #1A202C;
+    transition: all var(--transition-fast);
+  }
+
+  .form-input-clean::placeholder {
+    color: #A0AEC0;
+  }
+
+  .form-input-clean:focus {
+    outline: none;
+    border-color: #1E88E5;
+    box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.15);
   }
 }
 
