@@ -1,6 +1,7 @@
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+const connectDB = require('./config/db');
 const { globalRateLimiter } = require('./middleware/rateLimiter');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
@@ -77,18 +78,72 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // 4. Global API Rate Limiting
 app.use(globalRateLimiter);
 
-// 5. Root & Health Check Endpoints
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+// 5. Database connection middleware — ensures MongoDB is connected before any route handler
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('[DB Middleware] Database connection failed:', error.message);
+    res.status(503).json({
+      success: false,
+      message: 'Service temporarily unavailable. Database connection failed.',
+    });
+  }
 });
 
-// 6. Mount Primary API v1 Router
+// 6. Root & Health Check Endpoints
+app.get('/health', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const dbState = mongoose.connection.readyState;
+    const dbStatus = dbState === 1 ? 'connected' : 'disconnected';
+    res.status(200).json({
+      success: true,
+      message: 'Backend is running',
+      status: 'ok',
+      database: dbStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.status(200).json({
+      success: true,
+      message: 'Backend is running',
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/api/health', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const dbState = mongoose.connection.readyState;
+    const dbStatus = dbState === 1 ? 'connected' : 'disconnected';
+    res.status(200).json({
+      success: true,
+      message: 'Backend is running',
+      status: 'ok',
+      database: dbStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.status(200).json({
+      success: true,
+      message: 'Backend is running',
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// 7. Mount Primary API v1 Router
 app.use('/api/v1', apiRoutes);
 
-// 7. Unmatched Route Fallthrough (404)
+// 8. Unmatched Route Fallthrough (404)
 app.use(notFound);
 
-// 8. Centralized Global Error Handler
+// 9. Centralized Global Error Handler
 app.use(errorHandler);
 
 module.exports = app;

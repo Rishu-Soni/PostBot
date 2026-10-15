@@ -12,7 +12,7 @@ const getBaseUrl = () => {
   }
   // Trim whitespace and trailing slashes
   const cleanUrl = envUrl.trim().replace(/\/+$/, '');
-  // If user provided origin without /api/v1 (e.g., https://my-backend.railway.app), append /api/v1
+  // If user provided origin without /api/v1, append /api/v1
   if (cleanUrl.startsWith('http') && !cleanUrl.endsWith('/api/v1')) {
     return `${cleanUrl}/api/v1`;
   }

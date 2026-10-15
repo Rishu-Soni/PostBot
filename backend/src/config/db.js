@@ -1,26 +1,42 @@
 const mongoose = require('mongoose');
-const dns = require('node:dns');
-
-// Force Google DNS to resolve MongoDB SRV records reliably (fixes Windows/ISP querySrv ECONNREFUSED issues)
-dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 /**
- * Connects to MongoDB replica set using MONGO_URI from environment.
- * Exits process loudly with exit code 1 if connection fails.
+ * Serverless-safe MongoDB connection function.
+ * Reuses existing connection when possible (critical for Vercel cold starts).
+ * Never calls process.exit — errors propagate to the request handler.
  *
  * @returns {Promise<typeof mongoose>}
  */
+let isConnected = false;
+
 const connectDB = async () => {
+  if (isConnected) {
+    return;
+  }
+
+  // If mongoose already has an active connection, reuse it
+  if (mongoose.connection.readyState === 1) {
+    isConnected = true;
+    return;
+  }
+
   const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/postbot?replicaSet=rs0';
 
   try {
-    const conn = await mongoose.connect(mongoUri);
-    console.log(`[MongoDB] Connected successfully: ${conn.connection.host}/${conn.connection.name}`);
-    return conn;
+    await mongoose.connect(mongoUri);
+    isConnected = true;
+    console.log(`[MongoDB] Connected successfully: ${mongoose.connection.host}/${mongoose.connection.name}`);
   } catch (error) {
-    console.error(`[MongoDB] Fatal: Failed to connect to MongoDB at ${mongoUri}: ${error.message}`);
-    process.exit(1);
+    isConnected = false;
+    console.error(`[MongoDB] Failed to connect: ${error.message}`);
+    throw error;
   }
+
+  // Reset flag if connection is lost, so next request will reconnect
+  mongoose.connection.on('disconnected', () => {
+    isConnected = false;
+    console.warn('[MongoDB] Connection lost. Will reconnect on next request.');
+  });
 };
 
 module.exports = connectDB;
