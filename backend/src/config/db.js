@@ -23,7 +23,7 @@ const connectDB = async () => {
   const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/postbot?replicaSet=rs0';
 
   try {
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(mongoUri, { dbName: 'postbot' });
     isConnected = true;
     console.log(`[MongoDB] Connected successfully: ${mongoose.connection.host}/${mongoose.connection.name}`);
   } catch (error) {
