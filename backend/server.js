@@ -16,30 +16,35 @@ const PORT = process.env.PORT || 5000;
  */
 if (process.env.VERCEL !== '1') {
   const startServer = async () => {
-    // 1. Establish database connection (fails loudly if unavailable)
-    await connectDB();
+    try {
+      // 1. Establish database connection
+      await connectDB();
 
-    // 2. Start recurring scheduler cron job
-    startSchedulerJob();
+      // 2. Start recurring scheduler cron job
+      startSchedulerJob();
 
-    // 3. Start Express server listener
-    const server = app.listen(PORT, () => {
-      console.log(
-        `[Server] PostBot server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`
-      );
-    });
-
-    // Graceful shutdown handling
-    const shutdown = (signal) => {
-      console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
-      server.close(() => {
-        console.log('[Server] HTTP server closed.');
-        process.exit(0);
+      // 3. Start Express server listener
+      const server = app.listen(PORT, () => {
+        console.log(
+          `[Server] PostBot server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`
+        );
       });
-    };
 
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
+      // Graceful shutdown handling
+      const shutdown = (signal) => {
+        console.log(`[Server] Received ${signal}. Shutting down gracefully...`);
+        server.close(() => {
+          console.log('[Server] HTTP server closed.');
+          process.exit(0);
+        });
+      };
+
+      process.on('SIGTERM', () => shutdown('SIGTERM'));
+      process.on('SIGINT', () => shutdown('SIGINT'));
+    } catch (err) {
+      console.error('[Server] Fatal startup error:', err.message);
+      process.exit(1);
+    }
   };
 
   startServer();

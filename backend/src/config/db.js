@@ -1,4 +1,13 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// On Windows / environments where local router DNS rejects SRV lookups for MongoDB Atlas,
+// fallback to reliable public DNS resolvers to prevent querySrv ECONNREFUSED
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch {
+  // Gracefully ignore in sandbox/restricted environments
+}
 
 /**
  * Serverless-safe MongoDB connection function.
