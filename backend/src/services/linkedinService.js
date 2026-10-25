@@ -183,19 +183,20 @@ const handleCallback = async (code, state) => {
       });
       linkedinUserId = userinfoResponse.data?.sub;
     } catch (userinfoError) {
-    try {
-      const meResponse = await axios.get('https://api.linkedin.com/v2/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      linkedinUserId = meResponse.data?.id;
-    } catch (meError) {
-      const errorMsg =
-        userinfoError.response?.data?.message ||
-        userinfoError.message ||
-        'Could not retrieve LinkedIn member ID';
-      throw new AppError(`Failed to fetch LinkedIn profile: ${errorMsg}`, 502);
+      try {
+        const meResponse = await axios.get('https://api.linkedin.com/v2/me', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        linkedinUserId = meResponse.data?.id;
+      } catch (meError) {
+        const errorMsg =
+          userinfoError.response?.data?.message ||
+          userinfoError.message ||
+          'Could not retrieve LinkedIn member ID';
+        throw new AppError(`Failed to fetch LinkedIn profile: ${errorMsg}`, 502);
+      }
     }
   }
 
