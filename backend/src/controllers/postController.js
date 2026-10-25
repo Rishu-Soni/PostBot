@@ -85,12 +85,13 @@ const updatePost = asyncHandler(async (req, res, next) => {
             )
           );
         }
-        await creditService.deductCredits(
-          req.user._id,
-          1,
-          'generation',
-          `Rescheduled post day ${post.dayIndex}`
-        );
+        await creditService.deductCredits({
+          userId: req.user._id,
+          amount: 1,
+          postId: post._id,
+          reason: 'generation',
+          note: `Rescheduled post day ${post.dayIndex}`,
+        });
         post.creditRefunded = false;
       }
 
@@ -317,12 +318,13 @@ const postNow = asyncHandler(async (req, res, next) => {
         new AppError('Insufficient credits. Publishing this previously refunded post requires 1 credit.', 402)
       );
     }
-    await creditService.deductCredits(
-      req.user._id,
-      1,
-      'generation',
-      `Publishing refunded post day ${post.dayIndex}`
-    );
+    await creditService.deductCredits({
+      userId: req.user._id,
+      amount: 1,
+      postId: post._id,
+      reason: 'generation',
+      note: `Publishing refunded post day ${post.dayIndex}`,
+    });
     post.creditRefunded = false;
   }
 

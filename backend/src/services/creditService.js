@@ -52,10 +52,16 @@ const deductCredits = async (
   } else {
     userId = userIdOrOptions;
     amount = amountArg;
-    postId = postIdArg || null;
-    reason = reasonArg || 'generation';
-    note = noteArg || null;
-    externalSession = sessionArg || null;
+    if (postIdArg === 'generation' || postIdArg === 'regeneration') {
+      reason = postIdArg;
+      note = typeof reasonArg === 'string' ? reasonArg : null;
+      postId = null;
+    } else {
+      postId = postIdArg || null;
+      reason = reasonArg || 'generation';
+      note = noteArg || null;
+      externalSession = sessionArg || null;
+    }
   }
 
   if (!userId) {
