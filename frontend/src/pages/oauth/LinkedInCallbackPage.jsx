@@ -14,6 +14,7 @@ export const LinkedInCallbackPage = () => {
 
   const [status, setStatus] = useState('processing'); // 'processing' | 'success' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
+  const hasRequestedRef = React.useRef(false);
 
   useEffect(() => {
     const code = searchParams.get('code');
@@ -32,6 +33,9 @@ export const LinkedInCallbackPage = () => {
       setErrorMessage('Missing OAuth callback authorization parameters.');
       return;
     }
+
+    if (hasRequestedRef.current) return;
+    hasRequestedRef.current = true;
 
     const exchangeCode = async () => {
       try {

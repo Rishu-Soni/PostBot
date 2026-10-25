@@ -118,7 +118,39 @@ const callback = asyncHandler(async (req, res, next) => {
     );
   }
 
-  const tokenData = await linkedinService.handleCallback(code, state);
+  let tokenData;
+  try {
+    tokenData = await linkedinService.handleCallback(code, state);
+  } catch (err) {
+    // If token exchange failed, check if this is a duplicate call where user was already connected in the last 60 seconds
+    try {
+      const stateSecret =
+        process.env.LINKEDIN_STATE_SECRET ||
+        process.env.JWT_SECRET ||
+        'dev-postbot-jwt-secret-key';
+      const decoded = jwt.verify(state, stateSecret);
+      if (decoded?.userId) {
+        const existingUser = await User.findById(decoded.userId);
+        if (
+          existingUser?.linkedin?.isConnected &&
+          existingUser?.linkedin?.connectedAt &&
+          Date.now() - new Date(existingUser.linkedin.connectedAt).getTime() < 60000
+        ) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              message: 'LinkedIn account successfully connected.',
+              isConnected: true,
+            },
+          });
+        }
+      }
+    } catch {
+      // Ignore fallback check and proceed to return original error
+    }
+
+    return next(err);
+  }
 
   const user = await User.findById(tokenData.userId || req.user?._id);
   if (!user) {
