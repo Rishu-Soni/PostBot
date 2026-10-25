@@ -37,6 +37,11 @@ const contentBatchSchema = new Schema(
     },
 
     confirmedAt: { type: Date, default: null },
+    expiresAt: {
+      type: Date,
+      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days expiry for drafts
+      index: true,
+    },
   },
   { timestamps: true }
 );

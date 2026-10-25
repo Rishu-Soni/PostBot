@@ -5,6 +5,7 @@ import {
   Sparkles,
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Trash2,
   Clock,
   ArrowRight,
@@ -212,7 +213,8 @@ export const BatchReviewPage = () => {
     return (
       <div className="space-y-6 max-w-7xl mx-auto py-6">
         <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
@@ -225,17 +227,23 @@ export const BatchReviewPage = () => {
   const dayIndices = Array.from({ length: finalCount }, (_, i) => i + 1);
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-32 animate-fade-in py-2">
+    <div className="space-y-8 max-w-7xl mx-auto pb-36 lg:pb-40 animate-fade-in py-2">
       {/* Batch Overview Banner */}
-      <section className="bg-surface-card rounded-2xl border border-border-warm p-6 shadow-sm">
+      <section className="bg-surface-card rounded-2xl border border-border-warm p-6 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-2">
-            {/* Draft Stage Badge */}
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-              <span>Draft Review</span>
-              <span className="text-amber-300">|</span>
-              <span className="font-medium text-amber-700">{posts.length} of {finalCount} Posts Generated</span>
+            {/* Draft Stage & Expiration Badges */}
+            <div className="flex items-center flex-wrap gap-2 text-xs">
+              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand"></span>
+                <span>Draft Review</span>
+                <span className="text-blue-300">|</span>
+                <span className="font-medium text-blue-700">{posts.length} of {finalCount} Posts Generated</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-semibold" title="Drafts not confirmed are deleted entirely from database after 7 days">
+                <Clock className="w-3.5 h-3.5 text-amber-600" />
+                <span>Expires &amp; deleted after 7 days</span>
+              </div>
             </div>
 
             {/* Batch Title */}
@@ -258,10 +266,40 @@ export const BatchReviewPage = () => {
             </button>
           </div>
         </div>
+
+        {/* Professional Draft Expiration Warning Notice */}
+        <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 flex items-start gap-3.5 text-amber-950">
+          <div className="w-8 h-8 rounded-lg bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0 mt-0.5">
+            <AlertCircle className="w-4 h-4 stroke-[2.2]" />
+          </div>
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center flex-wrap gap-2">
+              <h2 className="text-xs sm:text-sm font-bold text-amber-950 tracking-tight">
+                Important: Do not leave this batch as an unconfirmed draft
+              </h2>
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300/60">
+                7-Day Retention Limit
+              </span>
+            </div>
+            <p className="text-xs text-amber-900/90 leading-relaxed">
+              Please finalize your review and click <strong>"Confirm &amp; Schedule Week"</strong> below. Unconfirmed draft batches and all generated posts are permanently deleted from the database after <strong>7 days</strong> if left as a draft. Once confirmed, your publishing calendar is activated and protected.
+            </p>
+          </div>
+        </div>
       </section>
 
-      {/* 3-Column Post Cards Grid */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Responsive Dynamic Post Cards Grid */}
+      <section
+        className={`grid gap-6 ${
+          finalCount === 1
+            ? 'grid-cols-1 max-w-xl mx-auto'
+            : finalCount === 2
+            ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto'
+            : finalCount === 3
+            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+            : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+        }`}
+      >
         {dayIndices.map((day) => {
           const post = posts.find((p) => p.dayIndex === day);
           const isBusy = post ? Boolean(busyPosts[post._id]) : false;
@@ -325,7 +363,7 @@ export const BatchReviewPage = () => {
                 </span>
                 <Link
                   to="/settings"
-                  className="px-5 py-2.5 rounded-xl bg-coral hover:bg-coral-hover text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover text-white text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-2"
                 >
                   <LinkedInIcon className="w-4 h-4 fill-current" />
                   <span>Connect LinkedIn to Schedule</span>
@@ -336,7 +374,7 @@ export const BatchReviewPage = () => {
                 type="button"
                 onClick={handleConfirmSchedule}
                 disabled={isConfirming}
-                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-coral hover:bg-coral-hover text-white text-sm font-bold shadow-md hover:shadow-lg transition-all duration-150 flex items-center justify-center gap-2.5 group cursor-pointer active:scale-98 disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-brand hover:bg-brand-hover text-white text-sm font-bold shadow-md hover:shadow-lg transition-all duration-150 flex items-center justify-center gap-2.5 group cursor-pointer active:scale-98 disabled:opacity-50"
               >
                 <span>Confirm &amp; Schedule Week ({posts.length} Posts)</span>
                 <Check className="w-4 h-4 stroke-[2.5] transition-transform group-hover:translate-x-0.5" />

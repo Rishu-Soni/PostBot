@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ShieldCheck,
   Zap,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCredits } from '../../context/CreditsContext';
@@ -88,6 +89,29 @@ export const DashboardPage = () => {
 
   const hasBatches = batches.length > 0;
 
+  const getTimezoneLabel = () => {
+    let tz = user?.timezone;
+    if (!tz || tz.toUpperCase() === 'UTC') {
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      } catch {
+        tz = 'UTC';
+      }
+    }
+    let abbr = '';
+    try {
+      abbr = new Intl.DateTimeFormat(undefined, { timeZone: tz, timeZoneName: 'short' })
+        .formatToParts(new Date())
+        .find((p) => p.type === 'timeZoneName')?.value;
+    } catch {
+      // fallback
+    }
+    return abbr && abbr !== tz ? `${tz} (${abbr})` : tz;
+  };
+
+  const displayTimezoneLabel = getTimezoneLabel();
+  const displayTime = user?.defaultPostTime || '09:00';
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Top Welcome Banner & Primary Action */}
@@ -101,60 +125,65 @@ export const DashboardPage = () => {
           <h1 className="text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">
             Welcome, {user?.name || 'Founder'} 👋
           </h1>
-          <p className="text-sm text-ink-muted mt-1">
-            Your personal LinkedIn publishing engine is configured for{' '}
-            <span className="text-ink font-medium">
-              {user?.timezone || 'UTC'}
-            </span>{' '}
-            at{' '}
-            <span className="text-ink font-medium">
-              {user?.defaultPostTime || '09:00'}
-            </span>
-            .
+          <p className="text-sm text-ink-muted mt-1 flex flex-wrap items-center gap-1.5">
+            <span>Your personal LinkedIn publishing engine is configured for</span>
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[#EFF6FF] hover:bg-[#DBEAFE] border border-[#BFDBFE] text-[#1E88E5] text-[13px] font-semibold transition-colors"
+              title="Adjust publishing schedule and timezone"
+            >
+              <span>{displayTimezoneLabel} at {displayTime}</span>
+              <SlidersHorizontal className="w-3 h-3 text-[#1E88E5]" />
+            </Link>
+            <span>.</span>
           </p>
         </div>
 
-        <Button
-          onClick={() => navigate('/batches/new')}
-          variant="primary"
-          size="lg"
-          icon={ArrowRight}
-          iconPosition="right"
-          className="shrink-0"
-        >
-          Start New Weekly Batch
-        </Button>
+        {hasBatches && (
+          <Button
+            onClick={() => navigate('/batches/new')}
+            variant="primary"
+            size="lg"
+            icon={ArrowRight}
+            iconPosition="right"
+            className="shrink-0"
+          >
+            Start New Weekly Batch
+          </Button>
+        )}
       </div>
 
       {/* Hero Overview Grid — 3 stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
         {/* 1. Credit Balance Card */}
-        <Card className="p-6 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-brand">
-              Credit Balance
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-brand-soft border border-brand/15 flex items-center justify-center text-brand">
-              <Zap className="w-4 h-4" />
+        <Card className="p-6 relative overflow-hidden h-full flex flex-col justify-between">
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[#64748B]">
+                Credit Balance
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#1E88E5]">
+                <Zap className="w-4 h-4" />
+              </div>
             </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-4xl font-extrabold text-ink">{creditBalance}</span>
+              <span className="text-xs text-ink-muted">credits available</span>
+            </div>
+            <p className="text-xs text-ink-muted mt-2">
+              1 credit per generated post or AI copy/image revamp.
+            </p>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-4xl font-extrabold text-ink">{creditBalance}</span>
-            <span className="text-xs text-ink-muted">credits available</span>
-          </div>
-          <p className="text-xs text-ink-muted mt-2">
-            1 credit per generated post or AI copy/image revamp.
-          </p>
-          <div className="mt-4 pt-4 border-t border-border-light flex items-center justify-between">
+          <div className="pt-3 mt-4 border-t border-[#F1F5F9] flex items-center justify-between min-h-[40px]">
             <Link
               to="/credits"
-              className="text-xs text-brand hover:text-brand-hover font-semibold flex items-center gap-1"
+              className="group inline-flex items-center gap-1 text-[13px] font-semibold text-[#1E88E5] hover:text-[#1565C0] transition-colors"
             >
               <span>View ledger</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <span
-              className="text-[11px] px-2 py-0.5 rounded-full bg-canvas text-ink-subtle border border-border-light cursor-help"
+              className="text-[11px] px-2 py-0.5 rounded-full bg-slate-50 text-[#64748B] border border-[#E2E8F0] cursor-help font-medium"
               title="Self-serve billing integration coming soon"
             >
               Buy More (Soon)
@@ -163,83 +192,96 @@ export const DashboardPage = () => {
         </Card>
 
         {/* 2. LinkedIn Connection Card */}
-        <Card className="p-6 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-              LinkedIn Integration
-            </span>
-            <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                isLinkedInConnected
-                  ? 'bg-green-50 text-green-600 border border-green-200'
-                  : 'bg-red-50 text-red-500 border border-red-200'
-              }`}
-            >
-              <LinkedInIcon className="w-4 h-4" />
+        <Card className="p-6 relative overflow-hidden h-full flex flex-col justify-between">
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[#64748B]">
+                LinkedIn Integration
+              </span>
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isLinkedInConnected
+                    ? 'bg-green-50 text-green-600 border border-green-200'
+                    : 'bg-slate-100/90 text-slate-700 border border-slate-200'
+                }`}
+              >
+                <LinkedInIcon className="w-4 h-4" />
+              </div>
             </div>
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isLinkedInConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'
+                }`}
+              />
+              <span className="text-xl font-bold text-ink">
+                {isLinkedInConnected ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+            <p className="text-xs text-ink-muted mt-2">
+              {isLinkedInConnected
+                ? 'OAuth token active. Automated publishing enabled.'
+                : 'Required before scheduling your weekly posts.'}
+            </p>
           </div>
-          <div className="mt-3 flex items-center gap-2">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isLinkedInConnected ? 'bg-green-500 animate-pulse' : 'bg-red-400'
-              }`}
-            />
-            <span className="text-xl font-bold text-ink">
-              {isLinkedInConnected ? 'Connected' : 'Not Connected'}
-            </span>
-          </div>
-          <p className="text-xs text-ink-muted mt-2">
-            {isLinkedInConnected
-              ? 'OAuth token active. Automated publishing enabled.'
-              : 'Required before scheduling your weekly posts.'}
-          </p>
-          <div className="mt-4 pt-4 border-t border-border-light">
+          <div className="pt-3 mt-4 border-t border-[#F1F5F9] flex items-center justify-between min-h-[40px]">
             {isLinkedInConnected ? (
               <Link
                 to="/settings"
-                className="text-xs text-green-600 hover:text-green-700 font-semibold flex items-center gap-1"
+                className="group inline-flex items-center gap-1 text-[13px] font-semibold text-green-600 hover:text-green-700 transition-colors"
               >
                 <span>Manage account link</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
               </Link>
             ) : (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => navigate('/settings')}
-                className="w-full text-xs py-1.5"
+              <Link
+                to="/settings"
+                className="group inline-flex items-center gap-1 text-[13px] font-semibold text-[#1E88E5] hover:text-[#1565C0] transition-colors"
               >
-                Connect LinkedIn Profile
-              </Button>
+                <span>Connect LinkedIn profile</span>
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
             )}
           </div>
         </Card>
 
         {/* 3. Active Batches Summary */}
-        <Card className="p-6 relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-              Publishing Queue
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-canvas border border-border-warm flex items-center justify-center text-ink-muted">
-              <Layers className="w-4 h-4" />
+        <Card className="p-6 relative overflow-hidden h-full flex flex-col justify-between">
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-semibold uppercase tracking-[0.05em] text-[#64748B]">
+                Publishing Queue
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-slate-50 border border-[#E2E8F0] flex items-center justify-center text-[#64748B]">
+                <Layers className="w-4 h-4" />
+              </div>
             </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-4xl font-extrabold text-ink">{activeBatchesCount}</span>
+              <span className="text-xs text-ink-muted">active batches</span>
+            </div>
+            <p className="text-xs text-ink-muted mt-2">
+              Automated scheduler runs hourly according to your timezone.
+            </p>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-4xl font-extrabold text-ink">{activeBatchesCount}</span>
-            <span className="text-xs text-ink-muted">active batches</span>
-          </div>
-          <p className="text-xs text-ink-muted mt-2">
-            Automated scheduler runs hourly according to your timezone.
-          </p>
-          <div className="mt-4 pt-4 border-t border-border-light">
-            <Link
-              to="/batches"
-              className="text-xs text-brand hover:text-brand-hover font-semibold flex items-center gap-1"
-            >
-              <span>View all batches</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
+          <div className="pt-3 mt-4 border-t border-[#F1F5F9] flex items-center justify-between min-h-[40px]">
+            {batches.length === 0 ? (
+              <Link
+                to="/batches/new"
+                className="group inline-flex items-center gap-1 text-[13px] font-semibold text-[#1E88E5] hover:text-[#1565C0] transition-colors"
+              >
+                <span>Create first batch</span>
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            ) : (
+              <Link
+                to="/batches"
+                className="group inline-flex items-center gap-1 text-[13px] font-semibold text-[#1E88E5] hover:text-[#1565C0] transition-colors"
+              >
+                <span>View all batches</span>
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            )}
           </div>
         </Card>
       </div>
@@ -249,7 +291,7 @@ export const DashboardPage = () => {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-bold text-ink">
-              <Bell className="w-4 h-4 text-amber-500" />
+              <Bell className="w-4 h-4 text-brand" />
               <span>Attention Required ({notifications.length})</span>
             </div>
             <Link
@@ -264,10 +306,10 @@ export const DashboardPage = () => {
             {notifications.map((n) => (
               <div
                 key={n._id}
-                className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-800 text-xs"
+                className="p-4 rounded-xl bg-blue-50/70 border border-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-blue-900 text-xs"
               >
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-brand shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold text-ink block sm:inline mr-2">
                       {n.type === 'token_expired'
@@ -276,7 +318,7 @@ export const DashboardPage = () => {
                         ? 'Publishing Failed'
                         : 'System Alert'}
                     </span>
-                    <span className="text-amber-700">{n.message}</span>
+                    <span className="text-blue-700">{n.message}</span>
                   </div>
                 </div>
 
@@ -352,9 +394,27 @@ export const DashboardPage = () => {
                 >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <Badge variant={batch.status} dot size="sm">
-                        {batch.status}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={batch.status} dot size="sm">
+                          {batch.status}
+                        </Badge>
+                        {isDraft && (
+                          <span
+                            className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center gap-1"
+                            title="Unconfirmed drafts are deleted from the database after 7 days. Confirm and schedule to preserve."
+                          >
+                            <Clock className="w-2.5 h-2.5 text-amber-600" />
+                            {(() => {
+                              const exp = batch.expiresAt ? new Date(batch.expiresAt).getTime() : new Date(batch.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000;
+                              const diff = exp - Date.now();
+                              if (diff <= 0) return 'Expiring soon';
+                              const hrs = Math.floor(diff / (1000 * 60 * 60));
+                              if (hrs < 24) return `${hrs}h left`;
+                              return `${Math.ceil(hrs / 24)}d left`;
+                            })()}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-ink-muted font-medium">
                         {batch.finalDayCount || batch.recommendedDayCount} Days
                       </span>

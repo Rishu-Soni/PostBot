@@ -14,6 +14,7 @@ import {
 import { batchService } from '../../services/batchService';
 import { postService } from '../../services/postService';
 import { useToast } from '../../context/ToastContext';
+import { useCredits } from '../../context/CreditsContext';
 import { PostCard } from '../../components/posts/PostCard';
 import { Badge } from '../../components/common/Badge';
 import { Skeleton } from '../../components/common/Skeleton';
@@ -22,6 +23,7 @@ export const BatchDetailPage = () => {
   const { batchId } = useParams();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { refreshBalance } = useCredits();
 
   const [batch, setBatch] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -44,12 +46,34 @@ export const BatchDetailPage = () => {
     loadBatchDetails();
   }, [batchId]);
 
+  // Reschedule post date/time
+  const handleUpdatePostDate = async (postId, newScheduledTime) => {
+    try {
+      const updatedPost = await postService.updatePost(postId, { scheduledTime: newScheduledTime });
+      setPosts((prev) => prev.map((p) => (p._id === postId ? updatedPost : p)));
+      if (batch?.status === 'exhausted') {
+        setBatch((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      }
+      if (refreshBalance) {
+        refreshBalance();
+      }
+      showToast('Post schedule updated successfully!', 'success');
+      return updatedPost;
+    } catch (err) {
+      showToast(err.message || 'Failed to update post schedule.', 'error');
+      throw err;
+    }
+  };
+
   // Retry immediate publishing on failed post
   const handleRetryPostNow = async (postId) => {
     setRetryingPosts((prev) => ({ ...prev, [postId]: true }));
     try {
       const updatedPost = await postService.postNow(postId);
       setPosts((prev) => prev.map((p) => (p._id === postId ? updatedPost : p)));
+      if (refreshBalance) {
+        refreshBalance();
+      }
       showToast('Post successfully published to LinkedIn!', 'success');
     } catch (err) {
       showToast(err.message || 'Retry failed. Check LinkedIn connection.', 'error');
@@ -66,7 +90,8 @@ export const BatchDetailPage = () => {
     return (
       <div className="space-y-6 max-w-7xl mx-auto py-6">
         <Skeleton className="h-24 w-full rounded-2xl" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
           <Skeleton className="h-96 rounded-2xl" />
@@ -126,10 +151,10 @@ export const BatchDetailPage = () => {
           <div className="h-4 w-[1px] bg-border-warm" />
 
           <div className="flex items-center gap-2 text-sm text-ink-muted">
-            <span className="p-1 rounded bg-coral-soft text-coral">
+            <span className="p-1 rounded bg-brand-soft text-brand">
               <Clock className="w-4 h-4" />
             </span>
-            <span className="font-semibold text-coral">{pendingCount}</span> Pending
+            <span className="font-semibold text-brand">{pendingCount}</span> Pending
           </div>
 
           {failedCount > 0 && (
@@ -161,7 +186,7 @@ export const BatchDetailPage = () => {
           <button
             type="button"
             onClick={() => navigate('/batches/new')}
-            className="px-4 py-2 bg-coral hover:bg-coral-hover text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="px-4 py-2 bg-brand hover:bg-brand-hover text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <PlusCircle className="w-4 h-4" />
             <span>Start New Batch</span>
@@ -169,8 +194,18 @@ export const BatchDetailPage = () => {
         </div>
       )}
 
-      {/* 3-Column Scheduled Posts Grid */}
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Responsive Scheduled Posts Grid */}
+      <section
+        className={`grid gap-6 ${
+          posts.length === 1
+            ? 'grid-cols-1 max-w-xl mx-auto'
+            : posts.length === 2
+            ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto'
+            : posts.length === 3
+            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+            : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+        }`}
+      >
         {posts.map((post) => (
           <PostCard
             key={post._id}
@@ -178,6 +213,7 @@ export const BatchDetailPage = () => {
             dayIndex={post.dayIndex}
             mode="scheduled"
             onRetryPostNow={handleRetryPostNow}
+            onUpdateDate={handleUpdatePostDate}
             isBusy={Boolean(retryingPosts[post._id])}
             busyActionText="Publishing to LinkedIn now..."
           />

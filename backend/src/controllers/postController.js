@@ -3,6 +3,7 @@ const { Post, User, CreditTransaction, ContentBatch } = require('../models');
 const aiService = require('../services/aiService');
 const imageService = require('../services/imageService');
 const linkedinService = require('../services/linkedinService');
+const creditService = require('../services/creditService');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -20,38 +21,96 @@ const getPost = asyncHandler(async (req, res) => {
 });
 
 /**
- * Manual edit for post caption or hashtags.
- * Free and unlimited. Only allowed while post.status === 'pending'.
+ * Manual edit for post caption, hashtags, image, or rescheduling scheduledTime.
+ * Allowed while post.status === 'pending' or 'failed'.
  * Route: PATCH /api/v1/posts/:postId
  */
 const updatePost = asyncHandler(async (req, res, next) => {
   const post = req.postIdDoc;
-  const { caption, hashtags, image } = req.body;
+  const { caption, hashtags, image, scheduledTime } = req.body;
 
-  if (post.status !== 'pending') {
-    return next(new AppError('Only pending posts can be manually edited.', 400));
+  if (post.status !== 'pending' && post.status !== 'failed') {
+    return next(new AppError('Only pending or failed posts can be edited or rescheduled.', 400));
   }
 
   let fieldEdited = 'caption';
   if (caption !== undefined) {
     post.caption = caption;
     fieldEdited = 'caption';
+    post.editHistory.push({
+      editedAt: new Date(),
+      field: 'caption',
+      type: 'manual_edit',
+    });
   }
   if (hashtags !== undefined) {
     post.hashtags = hashtags;
     fieldEdited = 'hashtags';
+    post.editHistory.push({
+      editedAt: new Date(),
+      field: 'hashtags',
+      type: 'manual_edit',
+    });
   }
   // Allow removing image by setting it to null (text-only post)
   if (image === null) {
     post.image = null;
     fieldEdited = 'image';
+    post.editHistory.push({
+      editedAt: new Date(),
+      field: 'image',
+      type: 'manual_edit',
+    });
   }
 
-  post.editHistory.push({
-    editedAt: new Date(),
-    field: fieldEdited,
-    type: 'manual_edit',
-  });
+  if (scheduledTime !== undefined) {
+    const newDate = new Date(scheduledTime);
+    if (isNaN(newDate.getTime())) {
+      return next(new AppError('Invalid scheduledTime date format.', 400));
+    }
+
+    post.scheduledTime = newDate;
+    fieldEdited = 'scheduledTime';
+
+    // If post previously failed, reschedule it back to pending
+    if (post.status === 'failed') {
+      // If credit was refunded upon failure, re-deduct 1 credit when rescheduling
+      if (post.creditRefunded) {
+        const user = await User.findById(req.user._id);
+        if ((user?.creditBalance || 0) < 1) {
+          return next(
+            new AppError(
+              'Insufficient credits. Rescheduling this previously refunded post requires 1 credit.',
+              402
+            )
+          );
+        }
+        await creditService.deductCredits(
+          req.user._id,
+          1,
+          'generation',
+          `Rescheduled post day ${post.dayIndex}`
+        );
+        post.creditRefunded = false;
+      }
+
+      post.status = 'pending';
+      post.failureReason = null;
+
+      // Reactivate batch if it was previously marked exhausted
+      const batch = await ContentBatch.findById(post.batchId);
+      if (batch && batch.status === 'exhausted') {
+        batch.status = 'active';
+        await batch.save();
+      }
+    }
+
+    post.editHistory.push({
+      editedAt: new Date(),
+      field: 'scheduledTime',
+      type: 'reschedule',
+    });
+  }
 
   await post.save();
 
@@ -250,6 +309,23 @@ const postNow = asyncHandler(async (req, res, next) => {
     );
   }
 
+  // If post credit was refunded upon failure, re-deduct 1 credit when retrying publication
+  if (post.creditRefunded) {
+    const user = await User.findById(req.user._id);
+    if ((user?.creditBalance || 0) < 1) {
+      return next(
+        new AppError('Insufficient credits. Publishing this previously refunded post requires 1 credit.', 402)
+      );
+    }
+    await creditService.deductCredits(
+      req.user._id,
+      1,
+      'generation',
+      `Publishing refunded post day ${post.dayIndex}`
+    );
+    post.creditRefunded = false;
+  }
+
   // Load user with OAuth access and refresh tokens
   const userWithToken = await User.findById(req.user._id).select(
     '+linkedin.accessToken +linkedin.refreshToken'
@@ -274,6 +350,14 @@ const postNow = asyncHandler(async (req, res, next) => {
     } catch (refreshErr) {
       post.status = 'failed';
       post.failureReason = 'token_expired';
+      if (!post.creditRefunded) {
+        try {
+          await creditService.addCredits(req.user._id, 1, 'refund', 'Refund for failed publish (token expired)');
+          post.creditRefunded = true;
+        } catch (e) {
+          console.error('[postNow] Failed to refund credit:', e.message);
+        }
+      }
       await post.save();
       return next(
         new AppError(
@@ -305,6 +389,14 @@ const postNow = asyncHandler(async (req, res, next) => {
   } catch (publishErr) {
     post.status = 'failed';
     post.failureReason = publishErr.message || 'LinkedIn publication failed';
+    if (!post.creditRefunded) {
+      try {
+        await creditService.addCredits(req.user._id, 1, 'refund', `Refund for failed publish: ${publishErr.message}`);
+        post.creditRefunded = true;
+      } catch (e) {
+        console.error('[postNow] Failed to refund credit:', e.message);
+      }
+    }
     await post.save();
     return next(publishErr);
   }

@@ -1,6 +1,72 @@
 const { Post, User, ContentBatch } = require('../models');
 const linkedinService = require('./linkedinService');
 const notificationService = require('./notificationService');
+const creditService = require('./creditService');
+
+/**
+ * Refunds 1 credit to the user if a scheduled post fails and hasn't already been refunded.
+ */
+const refundPostCredit = async (user, post, reasonNote) => {
+  if (!user || !post || post.creditRefunded) return;
+  try {
+    await creditService.addCredits(
+      user._id,
+      1,
+      'refund',
+      `Refund for failed post: ${reasonNote || 'publication failure'}`
+    );
+    post.creditRefunded = true;
+    console.log(`[Scheduler] Refunded 1 credit to user ${user._id} for post ${post._id}`);
+  } catch (err) {
+    console.error(`[Scheduler] Failed to refund credit for post ${post._id}:`, err.message);
+  }
+};
+
+/**
+ * Purges draft batches older than 7 days and their associated posts entirely from the database.
+ * Does not revert credits for expired unconfirmed drafts per retention policy.
+ */
+const cleanupExpiredDrafts = async () => {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  try {
+    const expiredDrafts = await ContentBatch.find({
+      status: 'draft',
+      $or: [
+        { expiresAt: { $lte: now } },
+        { createdAt: { $lte: sevenDaysAgo } },
+      ],
+    });
+
+    if (!expiredDrafts || expiredDrafts.length === 0) return 0;
+
+    console.log(`[Scheduler] Purging ${expiredDrafts.length} expired draft batch(es) (> 7 days old)...`);
+    let deletedCount = 0;
+
+    for (const draft of expiredDrafts) {
+      try {
+        const posts = await Post.find({ batchId: draft._id });
+
+        // Delete all child posts entirely
+        await Post.deleteMany({ batchId: draft._id });
+
+        // Delete the ContentBatch entirely from the database
+        await ContentBatch.findByIdAndDelete(draft._id);
+        deletedCount++;
+
+        console.log(`[Scheduler] Draft batch ${draft._id} and ${posts.length} draft posts deleted entirely from database.`);
+      } catch (err) {
+        console.error(`[Scheduler] Failed to purge expired draft batch ${draft._id}:`, err.message);
+      }
+    }
+
+    return deletedCount;
+  } catch (error) {
+    console.error('[Scheduler] Error checking expired drafts:', error.message);
+    return 0;
+  }
+};
 
 /**
  * Imminent token expiry window in milliseconds.
@@ -13,19 +79,23 @@ const STUCK_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000;
  * Executes a single complete scheduler pass across all due pending posts (§6).
  * Called automatically by the cron runner or manually via POST /api/v1/internal/scheduler/run-now.
  *
- * 1. Resets any posts stuck in 'processing' state back to 'pending'.
- * 2. Queries due pending posts (scheduledTime <= now).
- * 3. Atomically claims each due post with status 'processing'.
- * 4. Validates user LinkedIn credentials and proactively refreshes expiring tokens.
- * 5. Publishes due posts sequentially to respect LinkedIn API burst limits.
- * 6. Dispatches failure notifications on API or token errors.
- * 7. Detects batch exhaustion and triggers low-stock reminders.
+ * 1. Purges draft batches older than 3 days entirely from the database.
+ * 2. Resets any posts stuck in 'processing' state back to 'pending'.
+ * 3. Queries due pending posts (scheduledTime <= now).
+ * 4. Atomically claims each due post with status 'processing'.
+ * 5. Validates user LinkedIn credentials and proactively refreshes expiring tokens.
+ * 6. Publishes due posts sequentially to respect LinkedIn API burst limits.
+ * 7. Dispatches failure notifications on API or token errors.
+ * 8. Detects batch exhaustion and triggers low-stock reminders.
  *
  * @returns {Promise<{ processedCount: number, postedCount: number, failedCount: number, exhaustedBatchesCount: number }>}
  */
 const runSchedulerPass = async () => {
   const now = new Date();
   console.log(`[Scheduler] Starting scheduler pass at ${now.toISOString()}`);
+
+  // Step 0: Purge draft batches older than 3 days entirely from the database
+  await cleanupExpiredDrafts();
 
   // Step 1: Reset posts stuck in 'processing' state (e.g. from crashed server processes) older than 10 minutes
   const stuckCutoff = new Date(Date.now() - STUCK_PROCESSING_THRESHOLD_MS);
@@ -136,6 +206,7 @@ const runSchedulerPass = async () => {
         console.warn(`[Scheduler] LinkedIn not connected for user ${user._id} on post ${claimedPost._id}.`);
         claimedPost.status = 'failed';
         claimedPost.failureReason = 'token_expired';
+        await refundPostCredit(user, claimedPost, 'token_expired');
         await claimedPost.save();
         failedCount++;
         await notificationService.notifyTokenExpired(user, claimedPost);
@@ -155,6 +226,7 @@ const runSchedulerPass = async () => {
           console.warn(`[Scheduler] Token refresh failed for user ${user._id}:`, refreshErr.message);
           claimedPost.status = 'failed';
           claimedPost.failureReason = 'token_expired';
+          await refundPostCredit(user, claimedPost, 'token_expired');
           await claimedPost.save();
           failedCount++;
           await notificationService.notifyTokenExpired(user, claimedPost);
@@ -177,6 +249,7 @@ const runSchedulerPass = async () => {
         console.warn(`[Scheduler] LinkedIn publish failed for post ${claimedPost._id}:`, postErr.message);
         claimedPost.status = 'failed';
         claimedPost.failureReason = postErr.message || 'LinkedIn publication failed';
+        await refundPostCredit(user, claimedPost, postErr.message);
         await claimedPost.save();
         failedCount++;
         await notificationService.notifyPostingFailure(user, claimedPost, postErr);
@@ -189,6 +262,8 @@ const runSchedulerPass = async () => {
       try {
         claimedPost.status = 'failed';
         claimedPost.failureReason = passError.message || 'Unexpected scheduling error';
+        const user = await User.findById(claimedPost.userId);
+        if (user) await refundPostCredit(user, claimedPost, passError.message);
         await claimedPost.save();
       } catch (saveErr) {
         console.error(`[Scheduler] Critical: failed to mark post ${claimedPost._id} as failed:`, saveErr.message);
@@ -213,4 +288,5 @@ const runSchedulerPass = async () => {
 
 module.exports = {
   runSchedulerPass,
+  cleanupExpiredDrafts,
 };

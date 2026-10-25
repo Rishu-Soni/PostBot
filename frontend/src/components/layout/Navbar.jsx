@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Zap,
-  LogOut,
-  User,
   Menu,
-  Plus,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCredits } from '../../context/CreditsContext';
@@ -18,23 +16,46 @@ import { LinkedInIcon } from '../common/LinkedInIcon';
 import { Logo } from '../common/Logo';
 
 export const Navbar = ({ onToggleSidebar }) => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { creditBalance } = useCredits();
   const navigate = useNavigate();
+  const location = useLocation();
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showLinkedInModal, setShowLinkedInModal] = useState(false);
 
   const isLinkedInConnected = Boolean(user?.linkedin?.isConnected);
+  const isDashboard = location.pathname === '/dashboard' || location.pathname === '/';
+
+  const getBreadcrumb = () => {
+    if (location.pathname.startsWith('/batches/new')) {
+      return { section: 'Batches', page: 'New Weekly Batch' };
+    }
+    if (location.pathname.startsWith('/batches')) {
+      return { section: 'Batches', page: 'Batch Management' };
+    }
+    if (location.pathname.startsWith('/credits')) {
+      return { section: 'Credits', page: 'Ledger & Usage' };
+    }
+    if (location.pathname.startsWith('/notifications')) {
+      return { section: 'Notifications', page: 'Alerts' };
+    }
+    if (location.pathname.startsWith('/settings')) {
+      return { section: 'Settings', page: 'Account & Integrations' };
+    }
+    return { section: 'Dashboard', page: 'Overview' };
+  };
+
+  const breadcrumb = getBreadcrumb();
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 sm:px-6 bg-surface/80 backdrop-blur-md border-b border-border-light">
-        {/* Left side: mobile toggle + brand on mobile */}
+      <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 sm:px-6 bg-white/85 backdrop-blur-md border-b border-[#E2E8F0]">
+        {/* Left side: mobile toggle + brand on mobile + breadcrumb on desktop */}
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onToggleSidebar}
-            className="p-2 text-ink-muted hover:text-ink rounded-lg hover:bg-canvas lg:hidden"
+            className="p-2 text-ink-muted hover:text-ink rounded-lg hover:bg-slate-100 lg:hidden"
             aria-label="Toggle Navigation"
           >
             <Menu className="w-5 h-5" />
@@ -43,62 +64,70 @@ export const Navbar = ({ onToggleSidebar }) => {
           <div className="lg:hidden flex items-center gap-2 font-bold text-ink tracking-tight">
             <Logo size="sm" />
             <span>PostBot</span>
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded" style={{ background: '#E2E8F0', color: '#64748B' }}>
+            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#E2E8F0] text-[#64748B]">
               PRO
             </span>
           </div>
+
+          {/* Desktop Left-Aligned Context Breadcrumb */}
+          <div className="hidden lg:flex items-center gap-2 text-sm select-none">
+            <span className="text-[#64748B] font-normal">{breadcrumb.section}</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-[#0F172A] font-medium">{breadcrumb.page}</span>
+          </div>
         </div>
 
-        {/* Right side: persistent status chips & user profile */}
-        <div className="flex items-center gap-2.5 sm:gap-3 ml-auto">
-          {/* Credit balance chip */}
-          <button
-            type="button"
-            onClick={() => setShowBuyModal(true)}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 rounded-full bg-surface-card hover:bg-canvas border border-border-warm text-ink transition-all hover:shadow-warm-sm text-xs sm:text-sm font-semibold cursor-pointer"
-            title="Credit balance — click for details"
-          >
-            <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand" />
-            <span>{creditBalance}</span>
-            <span className="hidden sm:inline font-normal text-ink-muted">Credits</span>
-          </button>
-
-          {/* LinkedIn connection status indicator */}
-          <button
-            type="button"
-            onClick={() => setShowLinkedInModal(true)}
-            className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full border text-xs sm:text-sm font-medium transition-all cursor-pointer ${
-              isLinkedInConnected
-                ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
-            }`}
-            title={isLinkedInConnected ? 'LinkedIn Connected' : 'LinkedIn Disconnected — Click to connect'}
-          >
-            <LinkedInIcon className="w-3.5 h-3.5 shrink-0" />
-            <span className="flex items-center gap-1.5">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isLinkedInConnected ? 'bg-green-500 animate-pulse' : 'bg-red-400'
-                }`}
-              />
-              <span className="hidden md:inline">
-                {isLinkedInConnected ? 'Connected' : 'Not Connected'}
-              </span>
-            </span>
-          </button>
-
-          {/* User profile quick link */}
-          <div className="flex items-center pl-2 border-l border-border-warm">
-            <Link
-              to="/settings"
-              className="flex items-center gap-2 p-1 text-ink-muted hover:text-ink rounded-lg hover:bg-canvas transition-colors"
-              title={`Settings (${user?.email})`}
+        {/* Right side: persistent status chips or subtle help guide link on dashboard */}
+        <div className="flex items-center gap-3 ml-auto">
+          {isDashboard ? (
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#64748B] hover:text-[#0F172A] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              title="Open PostBot Quickstart & Workflow Guide"
             >
-              <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-xs font-bold ring-2 ring-surface">
-                {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
-              </div>
-            </Link>
-          </div>
+              <HelpCircle className="w-3.5 h-3.5 text-[#94A3B8]" />
+              <span>Need help? Guide</span>
+            </button>
+          ) : (
+            <>
+              {/* Credit balance chip */}
+              <button
+                type="button"
+                onClick={() => setShowBuyModal(true)}
+                className="flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-[#E2E8F0] text-ink transition-all text-xs sm:text-sm font-semibold cursor-pointer shadow-2xs"
+                title="Credit balance — click for details"
+              >
+                <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#1E88E5]" />
+                <span>{creditBalance}</span>
+                <span className="hidden sm:inline font-normal text-ink-muted">Credits</span>
+              </button>
+
+              {/* LinkedIn connection status indicator */}
+              <button
+                type="button"
+                onClick={() => setShowLinkedInModal(true)}
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-full border text-xs sm:text-sm font-medium transition-all cursor-pointer ${
+                  isLinkedInConnected
+                    ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                    : 'bg-slate-100/90 border-slate-200 text-slate-700 hover:bg-slate-200/60'
+                }`}
+                title={isLinkedInConnected ? 'LinkedIn Connected' : 'LinkedIn Not Connected — Click to connect'}
+              >
+                <LinkedInIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isLinkedInConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-400'
+                    }`}
+                  />
+                  <span className="hidden md:inline">
+                    {isLinkedInConnected ? 'Connected' : 'Not Connected'}
+                  </span>
+                </span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -175,13 +204,13 @@ export const Navbar = ({ onToggleSidebar }) => {
             className={`p-4 rounded-xl border flex items-start gap-3 ${
               isLinkedInConnected
                 ? 'bg-green-50 border-green-200 text-green-800'
-                : 'bg-red-50 border-red-200 text-red-800'
+                : 'bg-blue-50 border-blue-200 text-blue-900'
             }`}
           >
             {isLinkedInConnected ? (
               <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-brand shrink-0 mt-0.5" />
             )}
             <div>
               <div className="font-semibold text-sm">

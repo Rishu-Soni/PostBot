@@ -8,9 +8,9 @@ export const Card = ({
   onClick,
   ...props
 }) => {
-  const baseClasses = 'rounded-[16px] border border-border-warm/60 transition-all duration-200 overflow-hidden';
-  const surfaceClasses = 'bg-[#FFFFFF] shadow-card';
-  const hoverClasses = hover ? 'hover:shadow-lg hover:border-border-warm cursor-pointer' : '';
+  const baseClasses = 'rounded-[16px] border border-[#E2E8F0] transition-all duration-200 overflow-hidden';
+  const surfaceClasses = 'bg-[#FFFFFF] shadow-sm';
+  const hoverClasses = hover ? 'hover:shadow-md hover:border-slate-300 cursor-pointer' : '';
   const gradientClasses = topGradient ? 'gradient-bar' : '';
 
   return (

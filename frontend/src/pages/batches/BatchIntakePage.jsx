@@ -111,7 +111,7 @@ export const BatchIntakePage = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in py-2">
+    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pt-10 pb-8">
       {/* Header Banner */}
       <div className="space-y-3">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase bg-brand-soft text-brand border border-blue-100 shadow-2xs">
@@ -121,7 +121,7 @@ export const BatchIntakePage = () => {
         <h1 className="text-3xl sm:text-4xl font-extrabold text-ink tracking-tight">
           New Weekly Batch
         </h1>
-        <p className="text-ink-muted text-sm sm:text-base leading-relaxed max-w-3xl">
+        <p className="text-[#64748B] text-sm sm:text-base leading-relaxed max-w-3xl">
           Tell us what&apos;s on your mind this week — we&apos;ll turn your raw ideas, customer conversations, and metrics into a week of polished LinkedIn posts.{' '}
           <span className="text-ink font-semibold">Zero credits charged for this step.</span>
         </p>
@@ -139,13 +139,13 @@ export const BatchIntakePage = () => {
               </label>
               <span
                 className={`text-xs font-semibold font-mono tracking-tight ${
-                  brainDump.length > 4500 ? 'text-coral' : 'text-ink-subtle'
+                  brainDump.length > 4500 ? 'text-coral' : 'text-[#64748B]'
                 }`}
               >
                 {brainDump.length.toLocaleString()} / 5,000 chars
               </span>
             </div>
-            <p className="text-xs text-ink-muted">
+            <p className="text-xs text-[#64748B] leading-relaxed">
               Type or paste bullet points, raw ideas, wins, customer feedback, bugs, or lessons from your week. Don&apos;t worry about formatting.
             </p>
 
@@ -157,7 +157,7 @@ export const BatchIntakePage = () => {
                 onChange={(e) => setBrainDump(e.target.value)}
                 maxLength={5000}
                 placeholder="Example: This week we shipped our self-hosted billing engine. Found out 65% of dropoffs occurred at the payment method modal. Fixed it by caching customer profiles, and signups jumped 2x. Also had a great call with a founder who scaled to $50k MRR using cold email with zero ad spend..."
-                className="w-full bg-transparent border-0 text-ink text-sm leading-relaxed p-4 focus:ring-0 placeholder:text-ink-subtle resize-none font-normal"
+                className="w-full bg-transparent border-0 text-ink text-sm leading-relaxed p-4 focus:ring-0 placeholder:text-[#94A3B8] resize-none font-normal"
                 disabled={isSubmitting}
               />
 
@@ -175,7 +175,7 @@ export const BatchIntakePage = () => {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1.5 text-[11px] text-ink-subtle font-medium">
+                <div className="flex items-center gap-1.5 text-[11px] text-[#64748B] font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Draft saved locally</span>
                 </div>
@@ -183,11 +183,11 @@ export const BatchIntakePage = () => {
             </div>
           </div>
 
-          {/* SECTION 2: Weekly Theme & Target Identity */}
+          {/* SECTION 2: Weekly Theme, Target Identity & Voice Tone */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-border-light">
             {/* Weekly Theme */}
             <div className="space-y-2">
-              <label htmlFor="weekly-theme" className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+              <label htmlFor="weekly-theme" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
                 Weekly Theme or Focus
               </label>
               <input
@@ -197,13 +197,13 @@ export const BatchIntakePage = () => {
                 onChange={(e) => setTheme(e.target.value)}
                 placeholder="e.g. Bootstrapping a SaaS to $10k MRR"
                 disabled={isSubmitting}
-                className="w-full bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink focus:border-brand focus:ring-2 focus:ring-brand/15 placeholder:text-ink-subtle shadow-2xs font-medium"
+                className="w-full bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink focus:border-brand focus:ring-2 focus:ring-brand/15 placeholder:text-[#94A3B8] shadow-2xs font-medium"
               />
             </div>
 
             {/* Target Identity */}
             <div className="space-y-2">
-              <label htmlFor="target-identity" className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+              <label htmlFor="target-identity" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
                 Target Identity / Level
               </label>
               <div className="relative">
@@ -220,18 +220,15 @@ export const BatchIntakePage = () => {
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-ink-muted">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-[#64748B]">
                   <ChevronDown className="w-4 h-4" />
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* SECTION 3: Voice Tone & Writing Style */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Voice Tone */}
             <div className="space-y-2">
-              <label htmlFor="voice-tone" className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+              <label htmlFor="voice-tone" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
                 Voice Tone
               </label>
               <div className="relative">
@@ -248,43 +245,18 @@ export const BatchIntakePage = () => {
                     </option>
                   ))}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-ink-muted">
-                  <ChevronDown className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-
-            {/* Writing Style */}
-            <div className="space-y-2">
-              <label htmlFor="style-preset" className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-                Writing Style Preset
-              </label>
-              <div className="relative">
-                <select
-                  id="style-preset"
-                  value={writingStyle}
-                  onChange={(e) => setWritingStyle(e.target.value)}
-                  disabled={isSubmitting}
-                  className="w-full appearance-none bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink font-medium focus:border-brand focus:ring-2 focus:ring-brand/15 shadow-2xs pr-10 cursor-pointer"
-                >
-                  {STYLE_PRESETS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-ink-muted">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-[#64748B]">
                   <ChevronDown className="w-4 h-4" />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Quick Style Suggestions Chips */}
-          <div className="space-y-2.5 pt-2">
-            <span className="text-xs font-medium text-ink-muted block">Quick style suggestions:</span>
-            <div className="flex flex-wrap gap-2">
-              {STYLE_PRESETS.slice(0, 4).map((preset) => {
+          {/* SECTION 3: Writing Style Suggestion Pills */}
+          <div className="space-y-2.5 pt-2 border-t border-border-light">
+            <span className="text-xs font-semibold text-[#64748B] block">Quick style suggestions:</span>
+            <div className="flex flex-wrap gap-2.5">
+              {STYLE_PRESETS.map((preset) => {
                 const isSelected = writingStyle === preset;
                 return (
                   <button
@@ -292,14 +264,14 @@ export const BatchIntakePage = () => {
                     type="button"
                     onClick={() => setWritingStyle(preset)}
                     disabled={isSubmitting}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-colors shadow-2xs flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer ${
                       isSelected
-                        ? 'bg-brand-soft text-brand border border-brand/30'
-                        : 'bg-white text-ink-muted border border-border-warm hover:border-ink-muted hover:bg-surface'
+                        ? 'bg-[#EFF6FF] text-[#1E88E5] border border-[#1E88E5] font-semibold'
+                        : 'bg-white text-[#64748B] border border-border-warm hover:border-[#94A3B8] hover:bg-slate-50'
                     }`}
                   >
                     <span>{preset}</span>
-                    {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5] text-[#1E88E5]" />}
                   </button>
                 );
               })}
@@ -330,19 +302,19 @@ export const BatchIntakePage = () => {
               type="button"
               onClick={() => navigate('/dashboard')}
               disabled={isSubmitting}
-              className="w-full sm:w-auto px-6 py-2.5 text-sm font-semibold text-ink-muted hover:text-ink rounded-xl hover:bg-surface transition-colors cursor-pointer"
+              className="w-full sm:w-auto px-6 py-2.5 text-sm font-semibold text-[#64748B] hover:text-ink rounded-xl hover:bg-surface transition-colors cursor-pointer"
             >
               Cancel
             </button>
 
             <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-3">
-              <span className="text-xs text-ink-muted font-medium text-center sm:text-right hidden sm:block">
+              <span className="text-xs text-[#64748B] font-medium leading-normal text-center sm:text-right hidden sm:block">
                 Takes ~15s to analyze depth &amp; recommend posts
               </span>
               <button
                 type="submit"
                 disabled={isSubmitting || !brainDump.trim()}
-                className="w-full sm:w-auto px-7 py-3 bg-coral hover:bg-coral-hover text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2 group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full sm:w-auto px-7 py-3 bg-[#1E88E5] hover:bg-[#1565C0] text-[#FFFFFF] text-sm font-semibold rounded-xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 group active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
@@ -363,7 +335,7 @@ export const BatchIntakePage = () => {
 
       {/* Contextual Bottom Tip Footer */}
       <footer className="text-center pb-8">
-        <p className="text-xs text-ink-muted flex items-center justify-center gap-1.5">
+        <p className="text-xs text-[#64748B] leading-relaxed flex items-center justify-center gap-1.5">
           <HelpCircle className="w-4 h-4 text-brand" />
           <span>
             PostBot creates high-impact post drafts with matching visual suggestions based on your input.

@@ -347,7 +347,7 @@ export const DayCountRecommendPage = () => {
                 className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                   selectedDates.length === selectedDayCount
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-blue-50 text-blue-700 border-blue-200'
                 }`}
               >
                 {selectedDates.length} of {selectedDayCount} dates selected
@@ -417,10 +417,10 @@ export const DayCountRecommendPage = () => {
                         isPast
                           ? 'text-ink-subtle opacity-30 cursor-not-allowed'
                           : isSelected
-                          ? 'bg-brand text-white shadow-sm ring-2 ring-brand/25 font-bold cursor-pointer scale-105 z-10'
+                          ? 'bg-[#1E88E5] text-white shadow-sm ring-2 ring-[#1E88E5]/25 font-bold cursor-pointer scale-105 z-10'
                           : isToday
-                          ? 'border border-brand text-brand hover:bg-brand-soft cursor-pointer'
-                          : 'text-ink hover:bg-brand-soft/60 hover:text-brand cursor-pointer'
+                          ? 'border border-[#1E88E5] text-[#1E88E5] hover:bg-[#EFF6FF] cursor-pointer'
+                          : 'text-ink hover:bg-[#EFF6FF] hover:text-[#1E88E5] cursor-pointer'
                       }`}
                     >
                       <span>{dayNum}</span>
@@ -435,127 +435,97 @@ export const DayCountRecommendPage = () => {
               </div>
 
               {/* Quick Preset Buttons */}
-              <div className="pt-2 border-t border-border-light flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium text-ink-muted mr-1">Quick Presets:</span>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('alternating')}
-                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
-                >
-                  Alternating Days
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('weekdays')}
-                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
-                >
-                  Consecutive Weekdays
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('daily')}
-                  className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-brand hover:text-brand text-ink transition-colors cursor-pointer shadow-2xs"
-                >
-                  Daily
-                </button>
-              </div>
-            </div>
-
-            {/* Configured Dates List */}
-            <div className="space-y-2 pt-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-ink">Configured Post Dates</span>
+              <div className="pt-2 border-t border-border-light flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-ink-muted mr-1">Quick Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('alternating')}
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Alternating Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('weekdays')}
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Consecutive Weekdays
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset('daily')}
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Daily
+                  </button>
+                </div>
                 {selectedDates.length < selectedDayCount && (
-                  <span className="text-[11px] text-amber-700 font-medium">
-                    Select {selectedDayCount - selectedDates.length} more date(s) on the calendar
+                  <span className="text-[11px] text-blue-700 font-medium">
+                    Select {selectedDayCount - selectedDates.length} more date(s)
                   </span>
                 )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-0.5">
-                {selectedDates.map((dateStr, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-2.5 bg-surface border border-border-warm rounded-xl text-xs hover:border-brand/40 transition-colors shadow-2xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-5 h-5 rounded-full bg-brand text-white font-bold text-[10px] flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="font-semibold text-ink truncate">
-                        {formatReadableDate(dateStr)}
-                      </span>
-                    </div>
-                    <input
-                      type="date"
-                      value={dateStr}
-                      min={todayKey}
-                      onChange={(e) => handleUpdateSinglePostDate(idx, e.target.value)}
-                      className="text-[11px] text-ink bg-white border border-border-warm rounded-lg px-2 py-1 focus:ring-1 focus:ring-brand focus:border-brand cursor-pointer shadow-2xs font-medium shrink-0"
-                    />
-                  </div>
-                ))}
               </div>
             </div>
           </div>
         </div>
 
+        {/* Assurance Guarantee Reassurance Pill */}
+        <div className="flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200/80 px-3.5 py-2 rounded-full text-xs text-emerald-800 font-medium">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>Unlimited free AI copy edits and image uploads included in every batch</span>
+        </div>
+
         {/* Financial / Credit Transparency Box */}
-        <div className="pt-4 border-t border-border-light flex flex-col gap-2.5 text-sm">
+        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-[8px] px-4 py-3 flex flex-col gap-2.5 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-ink-muted font-medium">Cost to generate batch:</span>
-            <div className="flex items-center gap-1.5 font-bold text-ink">
-              <Coins className="w-4 h-4 text-amber-500 fill-amber-500" />
+            <span className="text-slate-600 font-medium text-xs sm:text-sm">Cost to generate batch:</span>
+            <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs sm:text-sm">
+              <Coins className="w-4 h-4 text-brand fill-brand" />
               <span>{creditsNeeded} Credits</span>
-              <span className="text-xs font-normal text-ink-muted">(1 credit / post)</span>
+              <span className="text-xs font-normal text-slate-500">(1 credit / post)</span>
             </div>
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-ink-muted font-medium">Your current balance:</span>
-            <div className="flex items-center gap-1.5 font-semibold text-ink">
+            <span className="text-slate-600 font-medium text-xs sm:text-sm">Your current balance:</span>
+            <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs sm:text-sm">
               <span className="font-bold">{creditBalance} Credits</span>
               <span
-                className={`text-xs font-normal ${
-                  remainingCredits < 0 ? 'text-rose-600 font-semibold' : 'text-ink-muted'
+                className={`text-xs ${
+                  remainingCredits < 0 ? 'text-rose-600 font-semibold' : 'text-slate-500 font-normal'
                 }`}
               >
                 ({remainingCredits >= 0 ? `${remainingCredits} remaining` : 'Insufficient balance'})
               </span>
             </div>
           </div>
-
-          {!hasEnoughCredits && (
-            <div className="mt-1 flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg text-xs text-rose-800">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>
-                You need {creditsNeeded} credits. Please buy more credits on the Credits page before proceeding.
-              </span>
-            </div>
-          )}
-
-          {/* Assurance Guarantee Notice */}
-          <div className="mt-1 flex items-center gap-2 bg-surface border border-border-warm px-3 py-2 rounded-lg text-xs text-emerald-800">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Unlimited free AI copy edits and image uploads included in every batch.</span>
-          </div>
         </div>
+
+        {!hasEnoughCredits && (
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-[8px] text-xs text-rose-800">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>
+              You need {creditsNeeded} credits. Please buy more credits on the Credits page before proceeding.
+            </span>
+          </div>
+        )}
 
         {/* Loading status during generation */}
         {isGenerating && (
-          <div className="p-4 rounded-xl bg-brand-soft border border-brand/20 space-y-2 animate-fade-in">
-            <div className="flex items-center gap-2 text-brand font-semibold text-xs">
+          <div className="p-4 rounded-xl bg-blue-50 border border-blue-200/60 space-y-2 animate-fade-in">
+            <div className="flex items-center gap-2 text-[#1E88E5] font-semibold text-xs">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>{generationStep}</span>
             </div>
             <div className="w-full bg-white/60 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-brand h-full rounded-full animate-pulse w-4/5" />
+              <div className="bg-[#1E88E5] h-full rounded-full animate-pulse w-4/5" />
             </div>
           </div>
         )}
 
         {/* Actions Footer Buttons */}
-        <div className="pt-2 flex flex-col-reverse sm:flex-row items-center justify-between gap-3">
+        <div className="pt-1 flex flex-col-reverse sm:flex-row items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => navigate('/batches/new')}
@@ -569,7 +539,7 @@ export const DayCountRecommendPage = () => {
             type="button"
             onClick={handleGenerate}
             disabled={isGenerating || !hasEnoughCredits || selectedDates.length !== selectedDayCount}
-            className="w-full sm:w-auto px-6 py-2.5 bg-coral hover:bg-coral-hover text-white font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full sm:w-auto px-6 py-2.5 bg-[#1E88E5] hover:bg-[#1565C0] text-[#FFFFFF] font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isGenerating ? (
               <>

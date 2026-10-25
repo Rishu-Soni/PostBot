@@ -11,37 +11,37 @@
 
 :root {
   /* ── Page & Surface Colors ────────────────────────────── */
-  --color-canvas: #FAF9F6;
-  /* Main page background (cream)          */
-  --color-surface: #FEFDFB;
+  --color-canvas: #F8FAFC;
+  /* Main page background (cool slate-white) */
+  --color-surface: #FFFFFF;
   /* Sidebar, elevated panels              */
   --color-surface-card: #FFFFFF;
   /* Cards, modals, form containers        */
 
   /* ── Border Colors ────────────────────────────────────── */
-  --color-border-warm: #CBD5E1;
-  /* Primary borders (transitioned away from pink) */
-  --color-border-light: #E2E8F0;
-  /* Subtle / secondary borders            */
+  --color-border-warm: #E2E8F0;
+  /* Primary borders (slate-200)           */
+  --color-border-light: #F1F5F9;
+  /* Subtle / secondary borders (slate-100) */
 
   /* ── Brand (Primary Blue) ─────────────────────────────── */
-  --color-brand: hsl(210, 90%, 40%);
-  /* Primary brand blue                    */
-  --color-brand-hover: hsl(210, 90%, 35%);
-  /* Brand hover state                     */
-  --color-brand-soft: hsl(210, 90%, 92%);
+  --color-brand: hsl(217, 91%, 60%);
+  /* Primary brand blue (#2563EB)          */
+  --color-brand-hover: hsl(217, 91%, 50%);
+  /* Brand hover state (#1D4ED8)           */
+  --color-brand-soft: hsl(214, 100%, 97%);
   /* Light brand background / active nav   */
-  --color-brand-text: hsl(210, 90%, 30%);
+  --color-brand-text: hsl(217, 91%, 40%);
   /* Brand-colored text                    */
 
-  /* ── Coral (CTA / Action) ─────────────────────────────── */
-  --color-coral: hsl(0, 75%, 65%);
+  /* ── Coral (Action / Accent) — Replaced globally with Blue & Light Blue / White shades ── */
+  --color-coral: hsl(217, 91%, 60%);
   /* Primary CTA buttons                   */
-  --color-coral-hover: hsl(0, 75%, 50%);
+  --color-coral-hover: hsl(217, 91%, 50%);
   /* CTA hover state                       */
-  --color-coral-soft: hsl(0, 75%, 96%);
-  /* Light coral background                */
-  --color-coral-dark: hsl(0, 75%, 40%);
+  --color-coral-soft: hsl(214, 100%, 97%);
+  /* Light blue / shade of white (#EFF6FF) */
+  --color-coral-dark: hsl(217, 91%, 38%);
   /* Coral pressed / dark variant          */
 
   /* ── Ink (Text) ───────────────────────────────────────── */
@@ -102,7 +102,7 @@
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.08);
   --shadow-xl: 0 16px 50px rgba(0, 0, 0, 0.1);
   --shadow-brand: 0 4px 14px rgba(13, 101, 184, 0.15);
-  --shadow-coral: 0 4px 14px rgba(242, 118, 94, 0.2);
+  --shadow-coral: 0 4px 14px rgba(37, 99, 235, 0.2);
 
   /* ── Transitions ──────────────────────────────────────── */
   --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -114,7 +114,7 @@
   /* 256px                                 */
 
   /* ── Gradient Bar (top of auth cards & modals) ────────── */
-  --gradient-bar: linear-gradient(to right, #0055ff, #8a2be2, #c71585);
+  --gradient-bar: linear-gradient(to right, #2563eb, #3b82f6, #60a5fa);
 }
 
 
@@ -207,7 +207,7 @@
   /* ── Dot-Grid Background Pattern ──────────────────────── */
   .dot-grid {
     background-color: var(--color-canvas);
-    background-image: radial-gradient(rgba(0, 0, 0, 0.02) 1px,
+    background-image: radial-gradient(rgba(148, 163, 184, 0.14) 1px,
         transparent 1px);
     background-size: 20px 20px;
   }

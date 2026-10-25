@@ -38,8 +38,8 @@ const postSchema = new Schema(
     editHistory: [
       {
         editedAt: { type: Date, default: Date.now },
-        field: { type: String, enum: ['caption', 'hashtags', 'image'] },
-        type: { type: String, enum: ['manual_edit', 'regeneration'], required: true },
+        field: { type: String, enum: ['caption', 'hashtags', 'image', 'scheduledTime'] },
+        type: { type: String, enum: ['manual_edit', 'regeneration', 'reschedule'], required: true },
         // manual_edit -> free, unlimited. regeneration -> costs 1 credit, logged in creditTransactions.
       },
     ],
@@ -56,6 +56,7 @@ const postSchema = new Schema(
     linkedinPostId: { type: String, default: null }, // set once successfully posted
     postedAt: { type: Date, default: null },
     failureReason: { type: String, default: null },
+    creditRefunded: { type: Boolean, default: false }, // true when token/credit was refunded upon failure
   },
   { timestamps: true }
 );

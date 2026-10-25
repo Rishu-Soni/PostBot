@@ -3,6 +3,8 @@ const { DateTime } = require('luxon');
 const { ContentBatch, Post, User, CreditTransaction } = require('../models');
 const aiService = require('../services/aiService');
 const imageService = require('../services/imageService');
+const creditService = require('../services/creditService');
+const { cleanupExpiredDrafts } = require('../services/schedulerService');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -46,9 +48,13 @@ const createBatch = asyncHandler(async (req, res) => {
 
 /**
  * List the current user's content batches (paginated).
+ * Purges drafts older than 3 days before querying.
  * Route: GET /api/v1/batches
  */
 const listBatches = asyncHandler(async (req, res) => {
+  // Purge any drafts older than 3 days across the database
+  await cleanupExpiredDrafts();
+
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
   const skip = (page - 1) * limit;
@@ -79,11 +85,27 @@ const listBatches = asyncHandler(async (req, res) => {
 
 /**
  * Fetch a single batch and its posts for the confirmation screen.
+ * If the draft is older than 3 days, deletes it entirely from the database and returns 404.
  * elaboratedStrategy is excluded by schema default (select: false).
  * Route: GET /api/v1/batches/:batchId
  */
-const getBatch = asyncHandler(async (req, res) => {
+const getBatch = asyncHandler(async (req, res, next) => {
   const batch = req.batchIdDoc;
+
+  // Check if draft has expired (7-day limit)
+  if (batch.status === 'draft') {
+    const isExpired =
+      (batch.expiresAt && new Date(batch.expiresAt) <= new Date()) ||
+      (batch.createdAt && new Date(batch.createdAt) <= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+
+    if (isExpired) {
+      await Post.deleteMany({ batchId: batch._id });
+      await ContentBatch.findByIdAndDelete(batch._id);
+      return next(
+        new AppError('This draft batch has expired (7-day retention limit) and was permanently deleted from the database.', 404)
+      );
+    }
+  }
 
   const posts = await Post.find({ batchId: batch._id }).sort({ dayIndex: 1 });
 
@@ -348,6 +370,7 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
 
   batch.status = 'active';
   batch.confirmedAt = new Date();
+  batch.expiresAt = null;
   await batch.save();
 
   res.status(200).json({

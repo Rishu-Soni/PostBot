@@ -7,7 +7,7 @@ export const AppShell = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen dot-grid text-ink flex">
+    <div className="min-h-screen bg-[#F8FAFC] dot-grid text-ink flex">
       {/* Sidebar Navigation */}
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 

@@ -77,12 +77,12 @@ export const Sidebar = ({ isOpen, onClose }) => {
 
       {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-surface border-r border-border-warm flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-white border-r border-[#E2E8F0] flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Brand Header */}
-        <div className="flex items-center justify-between h-14 px-5 border-b border-border-light">
+        <div className="flex items-center justify-between h-14 px-5 border-b border-[#E2E8F0]">
           <NavLink
             to="/dashboard"
             onClick={handleNavClick}
@@ -90,7 +90,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
           >
             <Logo size="sm" />
             <span className="leading-none text-ink">PostBot</span>
-            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded" style={{ background: '#E2E8F0', color: '#64748B' }}>
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-[#E2E8F0] text-[#64748B]">
               PRO
             </span>
           </NavLink>
@@ -107,19 +107,19 @@ export const Sidebar = ({ isOpen, onClose }) => {
         </div>
 
         {/* Primary Action Button */}
-        <div className="px-4 pt-5 pb-3">
+        <div className="px-4 pt-5 pb-4 mb-5 border-b border-[#F1F5F9]">
           <NavLink
             to="/batches/new"
             onClick={handleNavClick}
-            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-coral hover:bg-coral-hover text-white font-semibold text-sm shadow-coral transition-all active:scale-[0.98]"
+            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-[10px] bg-[#1E88E5] hover:bg-[#1565C0] text-white font-semibold text-sm shadow-sm transition-all active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-[#1E88E5]/25"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>New Weekly Batch</span>
+            <span>+ New Weekly Batch</span>
           </NavLink>
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scroll">
+        <nav className="flex-1 px-3 py-1 space-y-1 overflow-y-auto custom-scroll">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -128,10 +128,10 @@ export const Sidebar = ({ isOpen, onClose }) => {
                 to={item.path}
                 onClick={handleNavClick}
                 className={({ isActive }) =>
-                  `flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  `flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all ${
                     isActive
-                      ? 'bg-brand-soft text-brand border border-brand/15'
-                      : 'text-ink-muted hover:text-ink hover:bg-canvas/60'
+                      ? 'bg-[#EFF6FF] text-[#1E88E5] font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium'
                   }`
                 }
               >
@@ -139,8 +139,8 @@ export const Sidebar = ({ isOpen, onClose }) => {
                   <>
                     <div className="flex items-center gap-3">
                       <Icon
-                        className={`w-4.5 h-4.5 transition-colors ${
-                          isActive ? 'text-brand' : 'text-ink-subtle'
+                        className={`w-4 h-4 transition-colors ${
+                          isActive ? 'text-[#1E88E5]' : 'text-slate-400'
                         }`}
                       />
                       <span>{item.name}</span>
@@ -151,7 +151,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
                       </span>
                     )}
                     {isActive && !item.badge && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#1E88E5]" />
                     )}
                   </>
                 )}
@@ -161,10 +161,10 @@ export const Sidebar = ({ isOpen, onClose }) => {
         </nav>
 
         {/* User Card & Logout */}
-        <div className="p-3 border-t border-border-light">
-          <div className="flex items-center justify-between p-2.5 rounded-xl bg-canvas/50">
+        <div className="p-3 border-t border-[#E2E8F0]">
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-[#E2E8F0]/60">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white font-bold text-xs shrink-0">
+              <div className="w-8 h-8 rounded-full bg-[#1E88E5] flex items-center justify-center text-white font-bold text-xs shrink-0">
                 {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
               </div>
               <div className="min-w-0">

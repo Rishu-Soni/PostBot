@@ -101,7 +101,7 @@ export const BatchesListPage = () => {
             </div>
             <div className="h-3.5 w-[1px] bg-border-warm"></div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              <span className="w-2 h-2 rounded-full bg-brand"></span>
               <span><strong className="text-ink font-bold">{draftCount}</strong> Drafts</span>
             </div>
           </div>
@@ -109,7 +109,7 @@ export const BatchesListPage = () => {
           <button
             type="button"
             onClick={() => navigate('/batches/new')}
-            className="bg-coral hover:bg-coral-hover text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="bg-brand hover:bg-brand-hover text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <PlusCircle className="w-4 h-4" />
             <span>New Weekly Batch</span>
@@ -192,7 +192,7 @@ export const BatchesListPage = () => {
                 onClick={() => navigate(targetUrl)}
                 className={`rounded-2xl p-5 shadow-sm transition-all duration-200 cursor-pointer group ${
                   isDraft
-                    ? 'bg-[#FFFDFB] border-2 border-coral/40 hover:border-coral hover:shadow-md'
+                    ? 'bg-blue-50/30 border-2 border-brand/30 hover:border-brand hover:shadow-md'
                     : 'bg-surface-card border border-border-warm hover:border-brand/40 hover:shadow-md'
                 }`}
               >
@@ -208,10 +208,25 @@ export const BatchesListPage = () => {
                         </span>
                       )}
                       {isDraft && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                          Draft Review Needed
-                        </span>
+                        <>
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-brand"></span>
+                            Draft Review Needed
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md" title="Warning: Draft batches are permanently deleted after 7 days if not confirmed and scheduled.">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span>
+                              {(() => {
+                                const exp = batch.expiresAt ? new Date(batch.expiresAt).getTime() : new Date(batch.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000;
+                                const diff = exp - Date.now();
+                                if (diff <= 0) return 'Expiring soon';
+                                const hrs = Math.floor(diff / (1000 * 60 * 60));
+                                if (hrs < 24) return `Expires in ${hrs}h`;
+                                return `Expires in ${Math.ceil(hrs / 24)}d`;
+                              })()} (Auto-deletes)
+                            </span>
+                          </span>
+                        </>
                       )}
                       {isCompleted && (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold bg-surface text-ink-muted border border-border-warm">
@@ -277,7 +292,7 @@ export const BatchesListPage = () => {
                     {isDraft ? (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 bg-coral hover:bg-coral-hover text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition-all"
+                        className="inline-flex items-center gap-1.5 bg-brand hover:bg-brand-hover text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition-all"
                       >
                         <span>Continue Review</span>
                         <ArrowRight className="w-3.5 h-3.5" />

@@ -359,7 +359,7 @@ export const SettingsPage = () => {
                   type="button"
                   onClick={handleConnectLinkedIn}
                   disabled={isConnectingLinkedIn}
-                  className="flex-1 md:flex-initial flex items-center justify-center gap-2 text-xs font-bold text-white bg-coral hover:bg-coral-hover px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer"
+                  className="flex-1 md:flex-initial flex items-center justify-center gap-2 text-xs font-bold text-white bg-brand hover:bg-brand-hover px-4 py-2.5 rounded-xl shadow-md transition-all cursor-pointer"
                 >
                   <LinkedInIcon className="w-4 h-4 fill-current" />
                   <span>Connect LinkedIn</span>
@@ -387,7 +387,7 @@ export const SettingsPage = () => {
 
           <div className="space-y-4">
             {/* Email Notifications */}
-            <div className="p-4 rounded-xl border border-border-warm bg-[#fefdfb] hover:bg-surface/50 transition-colors flex items-center justify-between gap-4">
+            <div className="p-4 rounded-xl border border-border-warm bg-slate-50/60 hover:bg-surface/50 transition-colors flex items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-9 h-9 rounded-lg bg-brand-soft text-brand flex items-center justify-center shrink-0">
                   <Mail className="w-4 h-4 stroke-2" />
@@ -408,7 +408,7 @@ export const SettingsPage = () => {
             </div>
 
             {/* SMS Urgent Alerts */}
-            <div className="p-4 rounded-xl border border-border-warm bg-[#fefdfb] hover:bg-surface/50 transition-colors flex flex-col gap-4">
+            <div className="p-4 rounded-xl border border-border-warm bg-slate-50/60 hover:bg-surface/50 transition-colors flex flex-col gap-4">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="w-9 h-9 rounded-lg bg-coral-soft text-coral flex items-center justify-center shrink-0">
@@ -473,7 +473,7 @@ export const SettingsPage = () => {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="flex items-center gap-2 bg-coral hover:bg-coral-hover text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all transform active:scale-95 cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 bg-brand hover:bg-brand-hover text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all transform active:scale-95 cursor-pointer disabled:opacity-50"
               >
                 {isSaving ? (
                   <>

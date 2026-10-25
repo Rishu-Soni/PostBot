@@ -44,17 +44,27 @@ const getLinkedInConfig = () => {
  * @param {string|mongoose.Types.ObjectId} userId - Current user's MongoDB ObjectId
  * @returns {Promise<{ url: string, state: string }>}
  */
-const getAuthorizationUrl = async (userId) => {
+/**
+ * Generates LinkedIn OAuth consent URL with a secure, signed CSRF state payload.
+ *
+ * @param {string|mongoose.Types.ObjectId} userId - Current user's MongoDB ObjectId
+ * @param {string} [customRedirectUri] - Optional dynamic redirect URI matching client origin
+ * @returns {Promise<{ url: string, state: string }>}
+ */
+const getAuthorizationUrl = async (userId, customRedirectUri = null, clientUrl = null) => {
   if (!userId) {
     throw new AppError('userId is required to generate LinkedIn authorization URL.', 400);
   }
 
   const { clientId, redirectUri, stateSecret } = getLinkedInConfig();
+  const effectiveRedirectUri = customRedirectUri || redirectUri;
 
-  // Signed tamper-evident state param encoding userId with a 15-minute expiry
+  // Signed tamper-evident state param encoding userId, redirectUri & clientUrl with a 15-minute expiry
   const state = jwt.sign(
     {
       userId: userId.toString(),
+      redirectUri: effectiveRedirectUri,
+      clientUrl: clientUrl || null,
       type: 'linkedin_oauth_state',
     },
     stateSecret,
@@ -64,7 +74,7 @@ const getAuthorizationUrl = async (userId) => {
   const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', clientId);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('redirect_uri', effectiveRedirectUri);
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('scope', 'w_member_social');
 
@@ -106,6 +116,8 @@ const handleCallback = async (code, state) => {
     throw new AppError('LinkedIn OAuth state does not contain a valid userId.', 400);
   }
 
+  const effectiveRedirectUri = decoded.redirectUri || redirectUri;
+
   // 2. Exchange authorization code for tokens
   let tokenData;
   try {
@@ -114,7 +126,7 @@ const handleCallback = async (code, state) => {
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: redirectUri,
+      redirect_uri: effectiveRedirectUri,
     });
 
     const response = await axios.post(

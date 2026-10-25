@@ -30,11 +30,14 @@ const updatePostSchema = Joi.object({
         'array.max': 'A post can have at most 5 candidate hashtags',
       }),
     image: Joi.any().allow(null).optional(),
+    scheduledTime: Joi.date().iso().optional().messages({
+      'date.format': 'scheduledTime must be a valid ISO 8601 date string',
+    }),
   })
-    .or('caption', 'hashtags', 'image')
+    .or('caption', 'hashtags', 'image', 'scheduledTime')
     .required()
     .messages({
-      'object.missing': 'At least one field (caption, hashtags, or image) must be provided for manual edit',
+      'object.missing': 'At least one field (caption, hashtags, image, or scheduledTime) must be provided for manual edit',
     }),
 });
 

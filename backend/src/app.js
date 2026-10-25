@@ -6,6 +6,7 @@ const { globalRateLimiter } = require('./middleware/rateLimiter');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const apiRoutes = require('./routes');
+const linkedinController = require('./controllers/linkedinController');
 const AppError = require('./utils/AppError');
 
 const app = express();
@@ -137,7 +138,11 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// 7. Mount Primary API v1 Router
+// 7. Top-Level OAuth Redirect Handlers
+app.get('/linkedin/callback', linkedinController.handleRedirect);
+app.get('/api/linkedin/callback', linkedinController.handleRedirect);
+
+// 8. Mount Primary API v1 Router
 app.use('/api/v1', apiRoutes);
 
 // 8. Unmatched Route Fallthrough (404)

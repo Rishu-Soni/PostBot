@@ -2,7 +2,10 @@ import { api } from './api';
 
 export const linkedinService = {
   async getConnectUrl() {
-    const res = await api.get('/linkedin/connect');
+    const clientUrl = window.location.origin;
+    const res = await api.get('/linkedin/connect', {
+      params: { clientUrl },
+    });
     return res.data;
   },
 
