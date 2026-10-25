@@ -76,7 +76,7 @@ const getAuthorizationUrl = async (userId, customRedirectUri = null, clientUrl =
   authUrl.searchParams.set('client_id', clientId);
   authUrl.searchParams.set('redirect_uri', effectiveRedirectUri);
   authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('scope', 'w_member_social');
+  authUrl.searchParams.set('scope', 'openid profile w_member_social');
 
   return {
     url: authUrl.toString(),
@@ -149,6 +149,7 @@ const handleCallback = async (code, state) => {
     access_token: accessToken,
     expires_in: expiresIn,
     refresh_token: refreshToken,
+    id_token: idToken,
     scope,
   } = tokenData;
 
@@ -158,16 +159,30 @@ const handleCallback = async (code, state) => {
 
   const tokenExpiresAt = new Date(Date.now() + (expiresIn || 5184000) * 1000);
 
-  // 3. Fetch LinkedIn member ID via OpenID userinfo (fallback to /v2/me if needed)
+  // 3. Fetch LinkedIn member ID via OpenID id_token or userinfo
   let linkedinUserId = null;
-  try {
-    const userinfoResponse = await axios.get('https://api.linkedin.com/v2/userinfo', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-    linkedinUserId = userinfoResponse.data?.sub;
-  } catch (userinfoError) {
+
+  // Check if id_token was returned with sub claim
+  if (idToken) {
+    try {
+      const decodedIdToken = jwt.decode(idToken);
+      if (decodedIdToken?.sub) {
+        linkedinUserId = decodedIdToken.sub;
+      }
+    } catch {
+      // Fall through to userinfo endpoint
+    }
+  }
+
+  if (!linkedinUserId) {
+    try {
+      const userinfoResponse = await axios.get('https://api.linkedin.com/v2/userinfo', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      linkedinUserId = userinfoResponse.data?.sub;
+    } catch (userinfoError) {
     try {
       const meResponse = await axios.get('https://api.linkedin.com/v2/me', {
         headers: {
