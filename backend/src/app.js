@@ -26,6 +26,7 @@ const getAllowedOrigins = () => {
     'http://localhost:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5000',
+    'https://postbot.pages.dev',
   ];
 
   return [...new Set([...configured, ...localDefaults])];
@@ -42,7 +43,7 @@ const isOriginAllowed = (origin) => {
   }
 
   // Allow all Cloudflare Pages production and preview subdomains (*.pages.dev)
-  if (/^https:\/\/([a-zA-Z0-9-]+\.)*pages\.dev$/.test(normalized)) {
+  if (/^https:\/\/([a-zA-Z0-9-]+\.)*pages\.dev$/i.test(normalized)) {
     return true;
   }
 
@@ -64,7 +65,7 @@ app.use(
       if (isOriginAllowed(origin)) {
         return callback(null, true);
       }
-      return callback(new AppError(`Origin ${origin} not allowed by CORS policy.`, 403));
+      return callback(null, false);
     },
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
