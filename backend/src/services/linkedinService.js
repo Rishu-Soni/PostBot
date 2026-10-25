@@ -10,7 +10,15 @@ const AppError = require('../utils/AppError');
  * using LinkedIn's official REST API (/rest/posts) and image registration flow.
  */
 
-const LINKEDIN_API_VERSION = '202401';
+const getLinkedInApiVersion = () => {
+  if (process.env.LINKEDIN_API_VERSION) {
+    return process.env.LINKEDIN_API_VERSION.trim();
+  }
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}${month}`;
+};
 const RESTLI_PROTOCOL_VERSION = '2.0.0';
 
 /**
@@ -391,7 +399,7 @@ const createPost = async (user, post) => {
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            'LinkedIn-Version': LINKEDIN_API_VERSION,
+            'LinkedIn-Version': getLinkedInApiVersion(),
             'X-Restli-Protocol-Version': RESTLI_PROTOCOL_VERSION,
             'Content-Type': 'application/json',
           },
@@ -477,7 +485,7 @@ const createPost = async (user, post) => {
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          'LinkedIn-Version': LINKEDIN_API_VERSION,
+          'LinkedIn-Version': getLinkedInApiVersion(),
           'X-Restli-Protocol-Version': RESTLI_PROTOCOL_VERSION,
           'Content-Type': 'application/json',
         },
