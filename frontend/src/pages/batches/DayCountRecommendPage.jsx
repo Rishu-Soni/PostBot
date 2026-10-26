@@ -1,25 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Sparkles,
   Minus,
   Plus,
   Coins,
   ArrowRight,
-  ArrowLeft,
-  CheckCircle2,
   ShieldCheck,
   Loader2,
   AlertTriangle,
-  Calendar as CalendarIcon,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  RotateCcw,
+  Layers,
+  Sliders,
+  Edit3,
+  Quote,
+  Compass,
 } from 'lucide-react';
 import { batchService } from '../../services/batchService';
 import { useCredits } from '../../context/CreditsContext';
 import { useToast } from '../../context/ToastContext';
+import { getAllLayoutTemplates } from '../../utils/voiceVaultStorage';
 
 // Helper: format Date object to 'YYYY-MM-DD'
 const formatDateKey = (d) => {
@@ -72,6 +74,15 @@ const generatePresetDates = (count, presetType = 'alternating') => {
 
 const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+const POST_TONE_OVERRIDES = [
+  'Direct & Contrarian',
+  'Actionable Teardown',
+  'Personal Story',
+  'Deep-Dive Case Study',
+  'Tactical & Data-Backed',
+  'Conversational & Story-Driven',
+];
+
 export const DayCountRecommendPage = () => {
   const { batchId } = useParams();
   const location = useLocation();
@@ -79,9 +90,32 @@ export const DayCountRecommendPage = () => {
   const { creditBalance, refreshBalance } = useCredits();
   const { showToast } = useToast();
 
+  const [availableTemplates] = useState(getAllLayoutTemplates);
+
   const initialRecommended = location.state?.recommendedDayCount || 5;
   const [recommendedDayCount, setRecommendedDayCount] = useState(initialRecommended);
   const [selectedDayCount, setSelectedDayCount] = useState(initialRecommended);
+
+  // Strategy & Extracted Theme State
+  const [extractedTheme, setExtractedTheme] = useState(location.state?.extractedTheme || '');
+  const [strategyOverview, setStrategyOverview] = useState(location.state?.strategyOverview || '');
+  const [postsStrategy, setPostsStrategy] = useState(() => {
+    const passed = location.state?.postsStrategy;
+    if (Array.isArray(passed) && passed.length > 0) {
+      return passed;
+    }
+    // Fallback stub strategy for initialRecommended days
+    return Array.from({ length: initialRecommended }, (_, i) => ({
+      dayIndex: i + 1,
+      subtopic: `Day ${i + 1} Founder Insight`,
+      angle: 'Actionable lesson or metric from weekly build',
+      hookPreview: 'The single biggest lesson we learned this week...',
+      matchedTemplateId: i % 2 === 0 ? 'metric-teardown' : 'tactical-framework',
+      matchedTemplateName: i % 2 === 0 ? 'The Metric Teardown' : 'The Tactical Framework',
+      tone: 'Direct & Contrarian',
+    }));
+  });
+
   const [selectedDates, setSelectedDates] = useState(() =>
     generatePresetDates(initialRecommended, 'alternating')
   );
@@ -92,9 +126,9 @@ export const DayCountRecommendPage = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState('');
 
-  // Bounds: min 3 (or max 1, recommended - 2), max min(7, recommended + 2)
+  // Bounds: min 1 (or max 1, recommended - 2), max min(10, recommended + 2)
   const minDays = Math.max(1, Math.min(3, recommendedDayCount - 2));
-  const maxDays = Math.min(7, Math.max(5, recommendedDayCount + 2));
+  const maxDays = Math.min(10, Math.max(5, recommendedDayCount + 2));
 
   // Credit calculation
   const creditsNeeded = selectedDayCount;
@@ -102,16 +136,25 @@ export const DayCountRecommendPage = () => {
   const remainingCredits = creditBalance - creditsNeeded;
 
   useEffect(() => {
-    // If user refreshed or arrived directly without state, fetch the batch
-    if (!location.state?.recommendedDayCount && batchId) {
+    // If user arrived directly without state, fetch the batch
+    if ((!location.state?.postsStrategy || !location.state?.recommendedDayCount) && batchId) {
       batchService
         .getBatchById(batchId)
         .then((res) => {
-          if (res?.batch?.recommendedDayCount) {
-            const rec = res.batch.recommendedDayCount;
-            const finalCount = res.batch.finalDayCount || rec;
+          if (res?.batch) {
+            const b = res.batch;
+            const rec = b.recommendedDayCount || 5;
+            const finalCount = b.finalDayCount || rec;
             setRecommendedDayCount(rec);
             setSelectedDayCount(finalCount);
+
+            if (b.extractedTheme) setExtractedTheme(b.extractedTheme);
+            if (b.strategyOverview) setStrategyOverview(b.strategyOverview);
+
+            if (Array.isArray(b.postsStrategy) && b.postsStrategy.length > 0) {
+              setPostsStrategy(b.postsStrategy);
+            }
+
             setSelectedDates((prev) => {
               if (prev.length === finalCount) return prev;
               return generatePresetDates(finalCount, 'alternating');
@@ -136,6 +179,22 @@ export const DayCountRecommendPage = () => {
     if (selectedDayCount < maxDays) {
       const nextCount = selectedDayCount + 1;
       setSelectedDayCount(nextCount);
+
+      // Ensure postsStrategy has an entry for the new day
+      setPostsStrategy((prev) => {
+        if (prev.length >= nextCount) return prev;
+        const newCard = {
+          dayIndex: nextCount,
+          subtopic: `Day ${nextCount} Framework & Reflection`,
+          angle: 'Tactical breakdown and key metrics',
+          hookPreview: 'Something counter-intuitive we realized this week...',
+          matchedTemplateId: 'tactical-framework',
+          matchedTemplateName: 'The Tactical Framework',
+          tone: 'Direct & Contrarian',
+        };
+        return [...prev, newCard];
+      });
+
       setSelectedDates((prev) => {
         if (prev.length >= nextCount) return prev.slice(0, nextCount);
         let nextDate;
@@ -153,6 +212,28 @@ export const DayCountRecommendPage = () => {
         return [...prev, nextDate].sort();
       });
     }
+  };
+
+  const handleUpdatePostCard = (index, field, value) => {
+    setPostsStrategy((prev) => {
+      const copy = [...prev];
+      if (!copy[index]) return prev;
+
+      if (field === 'matchedTemplateId') {
+        const found = availableTemplates.find((t) => t.id === value);
+        copy[index] = {
+          ...copy[index],
+          matchedTemplateId: value,
+          matchedTemplateName: found?.name || value,
+        };
+      } else {
+        copy[index] = {
+          ...copy[index],
+          [field]: value,
+        };
+      }
+      return copy;
+    });
   };
 
   const todayKey = formatDateKey(new Date());
@@ -190,24 +271,10 @@ export const DayCountRecommendPage = () => {
       if (selectedDates.length < selectedDayCount) {
         setSelectedDates((prev) => [...prev, dateKey].sort());
       } else {
-        // If already at selectedDayCount, replace the last date
         const updated = [...selectedDates.slice(0, selectedDayCount - 1), dateKey].sort();
         setSelectedDates(updated);
       }
     }
-  };
-
-  const handleUpdateSinglePostDate = (index, newDateKey) => {
-    if (!newDateKey) return;
-    if (newDateKey < todayKey) {
-      showToast('Cannot schedule posts in the past.', 'warning');
-      return;
-    }
-    setSelectedDates((prev) => {
-      const copy = [...prev];
-      copy[index] = newDateKey;
-      return copy.sort();
-    });
   };
 
   const applyPreset = (presetType) => {
@@ -237,15 +304,37 @@ export const DayCountRecommendPage = () => {
     }
 
     setIsGenerating(true);
-    setGenerationStep('Allocating per-day editorial themes...');
+    setGenerationStep('Formatting per-post layout skeletons...');
 
     try {
-      setTimeout(() => setGenerationStep('Generating high-converting post hooks and captions...'), 1400);
-      setTimeout(() => setGenerationStep('Selecting matching visual imagery...'), 3000);
+      setTimeout(() => setGenerationStep('Applying post-specific tones and anti-cringe rules...'), 1200);
+      setTimeout(() => setGenerationStep('Generating magnetic hooks and body captions...'), 2600);
 
-      const res = await batchService.updateDayCount(batchId, selectedDayCount, selectedDates);
+      // Package customized post configs for the selected days
+      const activePostConfigs = postsStrategy.slice(0, selectedDayCount).map((card, idx) => {
+        const fullTemplate = availableTemplates.find((t) => t.id === card.matchedTemplateId) || {
+          name: card.matchedTemplateName,
+          skeleton: card.matchedTemplateName,
+        };
+        return {
+          dayIndex: card.dayIndex || idx + 1,
+          subtopic: card.subtopic,
+          angle: card.angle,
+          hookPreview: card.hookPreview,
+          layoutTemplate: fullTemplate,
+          matchedTemplateName: card.matchedTemplateName,
+          tone: card.tone,
+        };
+      });
+
+      const res = await batchService.updateDayCount(
+        batchId,
+        selectedDayCount,
+        selectedDates,
+        activePostConfigs
+      );
       refreshBalance();
-      showToast(`Successfully generated ${selectedDayCount} days of content!`, 'success');
+      showToast(`Successfully generated ${selectedDayCount} days of tailored content!`, 'success');
       navigate(`/batches/${batchId}/review`, { state: { batch: res.batch, posts: res.posts } });
     } catch (err) {
       showToast(err.message || 'Post generation failed. Please retry.', 'error');
@@ -253,231 +342,374 @@ export const DayCountRecommendPage = () => {
     }
   };
 
+  const displayedCards = postsStrategy.slice(0, selectedDayCount);
+
   return (
-    <div className="max-w-xl mx-auto space-y-8 animate-fade-in py-6">
+    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in py-8">
       {/* Header Eyebrow & Titles */}
       <div className="text-center space-y-3 flex flex-col items-center">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-soft border border-blue-100 text-xs font-semibold text-brand shadow-2xs">
           <Sparkles className="w-3.5 h-3.5 fill-brand" />
-          <span>Content Capacity Analysis</span>
+          <span>Intake &amp; Strategy Arc — Step 2</span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">
-          Day-Count Recommendation
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-ink tracking-tight">
+          Strategy &amp; Layout Matcher
         </h1>
-        <p className="text-sm text-ink-muted max-w-md font-normal leading-relaxed">
-          Based on the depth of your brain dump, choose your cadence and select any dates you want to schedule your posts.
+        <p className="text-sm sm:text-base text-ink-muted max-w-2xl font-normal leading-relaxed">
+          Review your AI-extracted weekly theme, customize layout skeletons per post, and choose your publishing cadence before generating.
         </p>
       </div>
 
-      {/* Central Elevated Recommendation Card */}
-      <div className="w-full bg-surface-card rounded-2xl border border-border-warm shadow-md p-6 sm:p-8 flex flex-col gap-6">
-        {/* AI Recommendation Banner */}
-        <div className="bg-brand-soft border border-blue-200/60 rounded-xl p-5 text-center flex flex-col items-center">
-          <span className="text-[11px] font-bold tracking-wider text-brand uppercase bg-white/80 px-2.5 py-0.5 rounded border border-blue-100 mb-2">
-            AI Recommendation
-          </span>
-          <p className="text-base sm:text-lg font-medium text-ink">
-            We found enough substance for{' '}
-            <span className="text-brand font-bold underline decoration-brand/30 underline-offset-4">
-              {recommendedDayCount} days
-            </span>{' '}
-            of high-impact content.
-          </p>
-          <p className="text-xs text-ink-muted mt-1.5">
-            You can adjust this between {minDays} to {maxDays} days to match your preferred frequency or budget.
-          </p>
+      {/* Main Elevated Container */}
+      <div className="w-full bg-surface-card rounded-2xl border border-border-warm shadow-md p-6 sm:p-8 lg:p-10 flex flex-col gap-8">
+        {/* AI Theme & Capacity Banner */}
+        <div className="bg-brand-soft border border-blue-200/60 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold tracking-wider text-brand uppercase bg-white/90 px-2.5 py-0.5 rounded border border-blue-100">
+              Extracted Weekly Focus
+            </span>
+            <h2 className="text-lg sm:text-xl font-extrabold text-ink tracking-tight">
+              {extractedTheme || 'Weekly Founder Growth & Engineering Insights'}
+            </h2>
+            {strategyOverview && (
+              <p className="text-xs text-[#64748B] max-w-xl line-clamp-2">
+                {strategyOverview}
+              </p>
+            )}
+          </div>
+
+          <div className="bg-white border border-border-warm rounded-xl p-3 text-center sm:text-right shrink-0 shadow-2xs">
+            <span className="text-[11px] font-semibold text-[#64748B] block">Supported Cadence:</span>
+            <span className="text-sm font-bold text-brand">
+              {recommendedDayCount} High-Impact Days
+            </span>
+          </div>
         </div>
 
-        {/* Schedule Selector Controls */}
-        <div className="flex flex-col gap-4">
-          {/* Bound labels & title */}
-          <div className="flex items-center justify-between text-xs font-semibold text-ink-muted px-1">
-            <span>Min: {minDays} days</span>
-            <span className="text-ink uppercase tracking-wider text-[11px] font-bold">
-              Choose Your Schedule
+        {/* SECTION 1: PER-POST STRATEGY CARDS & LAYOUT SKELETON MATCHER */}
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-light pb-3">
+            <div>
+              <h3 className="text-base font-extrabold text-ink flex items-center gap-2">
+                <Layers className="w-4 h-4 text-brand" />
+                <span>Per-Post Strategy &amp; Layout Controls</span>
+              </h3>
+              <p className="text-xs text-[#64748B]">
+                Control the hook angle, layout skeleton, and voice tone override for every single post.
+              </p>
+            </div>
+            <span className="text-xs font-bold text-brand bg-brand-soft px-3 py-1 rounded-full border border-blue-100 self-start sm:self-auto">
+              {displayedCards.length} Posts Configured
             </span>
-            <span>Max: {maxDays} days</span>
           </div>
 
-          {/* Stepper Container */}
-          <div className="bg-surface border border-border-warm rounded-xl p-4 flex items-center justify-between shadow-2xs">
-            {/* Minus Button */}
-            <button
-              type="button"
-              onClick={handleDecrement}
-              disabled={selectedDayCount <= minDays || isGenerating}
-              aria-label="Decrease days"
-              className="w-12 h-12 rounded-xl bg-white border border-border-warm text-ink hover:border-brand hover:text-brand disabled:opacity-35 disabled:hover:border-border-warm disabled:hover:text-ink disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer"
-            >
-              <Minus className="w-5 h-5 stroke-[2.5]" />
-            </button>
+          <div className="space-y-4">
+            {displayedCards.map((card, index) => {
+              const matchedTemplate =
+                availableTemplates.find((t) => t.id === card.matchedTemplateId) ||
+                availableTemplates[0];
 
-            {/* Central Count & Label */}
-            <div className="flex flex-col items-center">
-              <span className="text-4xl sm:text-5xl font-black text-ink tracking-tight leading-none">
-                {selectedDayCount}
+              const scheduledDateStr = selectedDates[index];
+
+              return (
+                <div
+                  key={card.dayIndex || index}
+                  className="p-5 rounded-2xl bg-white border border-border-warm hover:border-brand/40 transition-all shadow-xs space-y-4"
+                >
+                  {/* Card Header: Day indicator, Title & Scheduled Date */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-[#1E88E5] text-white shadow-2xs">
+                        Post #{index + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={card.subtopic}
+                        onChange={(e) => handleUpdatePostCard(index, 'subtopic', e.target.value)}
+                        placeholder="Sub-topic focus..."
+                        className="text-sm font-bold text-ink bg-transparent border-b border-transparent hover:border-border-warm focus:border-brand focus:ring-0 px-1 py-0.5"
+                      />
+                    </div>
+
+                    {scheduledDateStr && (
+                      <span className="text-[11px] font-semibold text-[#64748B] bg-surface px-2.5 py-1 rounded-lg border border-border-warm">
+                        🗓️ {formatReadableDate(scheduledDateStr)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Core Angle & Hook Preview (Editable Inline) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
+                        <Compass className="w-3 h-3 text-brand" />
+                        <span>Core Angle &amp; Takeaway</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={card.angle}
+                        onChange={(e) => handleUpdatePostCard(index, 'angle', e.target.value)}
+                        placeholder="Core angle or lesson..."
+                        className="w-full bg-surface border border-border-warm rounded-xl p-2.5 text-xs text-ink focus:border-brand focus:ring-1 focus:ring-brand shadow-inner resize-none font-medium"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] flex items-center gap-1">
+                        <Quote className="w-3 h-3 text-brand" />
+                        <span>Hook Preview (First 1-2 Lines)</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={card.hookPreview}
+                        onChange={(e) => handleUpdatePostCard(index, 'hookPreview', e.target.value)}
+                        placeholder="Magnetic opening hook preview..."
+                        className="w-full bg-surface border border-border-warm rounded-xl p-2.5 text-xs text-ink focus:border-brand focus:ring-1 focus:ring-brand shadow-inner resize-none font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Controls: Layout Skeleton Selector + Tone Override */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-border-light">
+                    {/* Layout Skeleton Selector */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748B] flex items-center justify-between">
+                        <span>Assigned Layout Skeleton</span>
+                        <span className="text-[10px] text-brand font-semibold">
+                          {matchedTemplate?.category || 'Template'}
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={card.matchedTemplateId}
+                          onChange={(e) =>
+                            handleUpdatePostCard(index, 'matchedTemplateId', e.target.value)
+                          }
+                          className="w-full appearance-none bg-white border border-border-warm rounded-xl px-3 py-2 text-xs font-semibold text-ink focus:border-brand focus:ring-1 focus:ring-brand shadow-2xs cursor-pointer"
+                        >
+                          {availableTemplates.map((tmpl) => (
+                            <option key={tmpl.id} value={tmpl.id}>
+                              {tmpl.name} ({tmpl.category || 'Built-in'})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Skeleton Flow Visual Preview */}
+                      <div className="p-2 rounded-lg bg-surface border border-border-light font-mono text-[10px] text-ink-muted leading-relaxed">
+                        {matchedTemplate?.skeleton}
+                      </div>
+                    </div>
+
+                    {/* Post-Specific Tone Override */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-[#64748B]">
+                        Post Tone Override
+                      </label>
+                      <select
+                        value={card.tone}
+                        onChange={(e) => handleUpdatePostCard(index, 'tone', e.target.value)}
+                        className="w-full appearance-none bg-white border border-border-warm rounded-xl px-3 py-2 text-xs font-semibold text-ink focus:border-brand focus:ring-1 focus:ring-brand shadow-2xs cursor-pointer"
+                      >
+                        {POST_TONE_OVERRIDES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-[#94A3B8] pt-1">
+                        Tailor the tone of this specific post independently from the rest of the batch.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* SECTION 2: CADENCE STEPPER & CALENDAR SCHEDULER */}
+        <div className="space-y-6 pt-4 border-t border-border-light">
+          <div className="flex flex-col gap-4">
+            {/* Stepper Header */}
+            <div className="flex items-center justify-between text-xs font-semibold text-ink-muted px-1">
+              <span>Min: {minDays} days</span>
+              <span className="text-ink uppercase tracking-wider text-[11px] font-bold">
+                Batch Cadence &amp; Schedule
               </span>
-              <span className="text-[11px] font-bold tracking-wider text-ink-muted uppercase mt-1">
-                Days of Posts
-              </span>
+              <span>Max: {maxDays} days</span>
             </div>
 
-            {/* Plus Button */}
-            <button
-              type="button"
-              onClick={handleIncrement}
-              disabled={selectedDayCount >= maxDays || isGenerating}
-              aria-label="Increase days"
-              className="w-12 h-12 rounded-xl bg-white border border-border-warm text-ink hover:border-brand hover:text-brand disabled:opacity-35 disabled:hover:border-border-warm disabled:hover:text-ink disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-5 h-5 stroke-[2.5]" />
-            </button>
-          </div>
+            {/* Stepper Control */}
+            <div className="bg-surface border border-border-warm rounded-xl p-4 flex items-center justify-between shadow-2xs">
+              <button
+                type="button"
+                onClick={handleDecrement}
+                disabled={selectedDayCount <= minDays || isGenerating}
+                aria-label="Decrease days"
+                className="w-12 h-12 rounded-xl bg-white border border-border-warm text-ink hover:border-brand hover:text-brand disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer"
+              >
+                <Minus className="w-5 h-5 stroke-[2.5]" />
+              </button>
 
-          {/* Interactive Date Selection Section */}
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <CalendarDays className="w-4 h-4 text-brand" />
-                <span className="text-xs font-bold uppercase tracking-wider text-ink">
-                  Schedule Dates
+              <div className="flex flex-col items-center">
+                <span className="text-4xl sm:text-5xl font-black text-ink tracking-tight leading-none">
+                  {selectedDayCount}
+                </span>
+                <span className="text-[11px] font-bold tracking-wider text-ink-muted uppercase mt-1">
+                  Days of Posts
                 </span>
               </div>
-              <span
-                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
-                  selectedDates.length === selectedDayCount
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-blue-50 text-blue-700 border-blue-200'
-                }`}
+
+              <button
+                type="button"
+                onClick={handleIncrement}
+                disabled={selectedDayCount >= maxDays || isGenerating}
+                aria-label="Increase days"
+                className="w-12 h-12 rounded-xl bg-white border border-border-warm text-ink hover:border-brand hover:text-brand disabled:opacity-35 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer"
               >
-                {selectedDates.length} of {selectedDayCount} dates selected
-              </span>
+                <Plus className="w-5 h-5 stroke-[2.5]" />
+              </button>
             </div>
 
-            <p className="text-xs text-ink-muted">
-              Click any date on the calendar to customize your publishing schedule.
-            </p>
-
-            {/* Interactive Mini Calendar Box */}
-            <div className="bg-white border border-border-warm rounded-2xl p-4 shadow-xs space-y-3">
-              {/* Calendar Header: Month + Navigation */}
-              <div className="flex items-center justify-between px-1">
-                <span className="text-sm font-bold text-ink tracking-tight">{monthLabel}</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={goToPrevMonth}
-                    disabled={isCurrentMonthOrPast()}
-                    aria-label="Previous Month"
-                    className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={goToNextMonth}
-                    aria-label="Next Month"
-                    className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm transition-colors cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Weekday Headers */}
-              <div className="grid grid-cols-7 gap-1 text-center">
-                {WEEKDAY_NAMES.map((name) => (
-                  <div key={name} className="text-[11px] font-bold text-ink-muted py-0.5">
-                    {name}
-                  </div>
-                ))}
-              </div>
-
-              {/* Calendar Grid Days */}
-              <div className="grid grid-cols-7 gap-1 text-center">
-                {blankDays.map((_, i) => (
-                  <div key={`blank-${i}`} className="h-9" />
-                ))}
-
-                {monthDays.map((dayNum) => {
-                  const dateObj = new Date(year, month, dayNum);
-                  const dateKey = formatDateKey(dateObj);
-                  const isPast = dateKey < todayKey;
-                  const isToday = dateKey === todayKey;
-                  const isSelected = selectedDates.includes(dateKey);
-                  const postIndex = selectedDates.indexOf(dateKey);
-
-                  return (
-                    <button
-                      key={dateKey}
-                      type="button"
-                      disabled={isPast || isGenerating}
-                      onClick={() => handleDateClick(dateKey)}
-                      className={`relative h-9 rounded-xl text-xs font-semibold flex flex-col items-center justify-center transition-all ${
-                        isPast
-                          ? 'text-ink-subtle opacity-30 cursor-not-allowed'
-                          : isSelected
-                          ? 'bg-[#1E88E5] text-white shadow-sm ring-2 ring-[#1E88E5]/25 font-bold cursor-pointer scale-105 z-10'
-                          : isToday
-                          ? 'border border-[#1E88E5] text-[#1E88E5] hover:bg-[#EFF6FF] cursor-pointer'
-                          : 'text-ink hover:bg-[#EFF6FF] hover:text-[#1E88E5] cursor-pointer'
-                      }`}
-                    >
-                      <span>{dayNum}</span>
-                      {isSelected && (
-                        <span className="text-[8px] leading-none opacity-85 font-mono">
-                          P{postIndex + 1}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Quick Preset Buttons */}
-              <div className="pt-2 border-t border-border-light flex flex-wrap items-center justify-between gap-1.5">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-ink-muted mr-1">Quick Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset('alternating')}
-                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
-                  >
-                    Alternating Days
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset('weekdays')}
-                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
-                  >
-                    Consecutive Weekdays
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset('daily')}
-                    className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
-                  >
-                    Daily
-                  </button>
-                </div>
-                {selectedDates.length < selectedDayCount && (
-                  <span className="text-[11px] text-blue-700 font-medium">
-                    Select {selectedDayCount - selectedDates.length} more date(s)
+            {/* Calendar Section */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-brand" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-ink">
+                    Schedule Dates
                   </span>
-                )}
+                </div>
+                <span
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                    selectedDates.length === selectedDayCount
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-blue-50 text-blue-700 border-blue-200'
+                  }`}
+                >
+                  {selectedDates.length} of {selectedDayCount} dates selected
+                </span>
+              </div>
+
+              {/* Interactive Calendar Box */}
+              <div className="bg-white border border-border-warm rounded-2xl p-4 shadow-xs space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-sm font-bold text-ink tracking-tight">{monthLabel}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={goToPrevMonth}
+                      disabled={isCurrentMonthOrPast()}
+                      aria-label="Previous Month"
+                      className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToNextMonth}
+                      aria-label="Next Month"
+                      className="p-1 rounded-lg text-ink-muted hover:text-ink hover:bg-surface border border-border-warm transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {WEEKDAY_NAMES.map((name) => (
+                    <div key={name} className="text-[11px] font-bold text-ink-muted py-0.5">
+                      {name}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {blankDays.map((_, i) => (
+                    <div key={`blank-${i}`} className="h-9" />
+                  ))}
+
+                  {monthDays.map((dayNum) => {
+                    const dateObj = new Date(year, month, dayNum);
+                    const dateKey = formatDateKey(dateObj);
+                    const isPast = dateKey < todayKey;
+                    const isToday = dateKey === todayKey;
+                    const isSelected = selectedDates.includes(dateKey);
+                    const postIndex = selectedDates.indexOf(dateKey);
+
+                    return (
+                      <button
+                        key={dateKey}
+                        type="button"
+                        disabled={isPast || isGenerating}
+                        onClick={() => handleDateClick(dateKey)}
+                        className={`relative h-9 rounded-xl text-xs font-semibold flex flex-col items-center justify-center transition-all ${
+                          isPast
+                            ? 'text-ink-subtle opacity-30 cursor-not-allowed'
+                            : isSelected
+                            ? 'bg-[#1E88E5] text-white shadow-sm ring-2 ring-[#1E88E5]/25 font-bold cursor-pointer scale-105 z-10'
+                            : isToday
+                            ? 'border border-[#1E88E5] text-[#1E88E5] hover:bg-[#EFF6FF] cursor-pointer'
+                            : 'text-ink hover:bg-[#EFF6FF] hover:text-[#1E88E5] cursor-pointer'
+                        }`}
+                      >
+                        <span>{dayNum}</span>
+                        {isSelected && (
+                          <span className="text-[8px] leading-none opacity-85 font-mono">
+                            P{postIndex + 1}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick Presets */}
+                <div className="pt-2 border-t border-border-light flex flex-wrap items-center justify-between gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-medium text-ink-muted mr-1">Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() => applyPreset('alternating')}
+                      className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Alternating Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyPreset('weekdays')}
+                      className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Weekdays
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyPreset('daily')}
+                      className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-surface border border-border-warm hover:border-[#1E88E5] hover:text-[#1E88E5] text-ink transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Daily
+                    </button>
+                  </div>
+                  {selectedDates.length < selectedDayCount && (
+                    <span className="text-[11px] text-blue-700 font-medium">
+                      Select {selectedDayCount - selectedDates.length} more date(s)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Assurance Guarantee Reassurance Pill */}
+        {/* Assurance Guarantee */}
         <div className="flex items-center justify-center gap-2 bg-emerald-50 border border-emerald-200/80 px-3.5 py-2 rounded-full text-xs text-emerald-800 font-medium">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Unlimited free AI copy edits and image uploads included in every batch</span>
+          <span>Unlimited free AI copy edits and custom image uploads included in every batch</span>
         </div>
 
-        {/* Financial / Credit Transparency Box */}
-        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-[8px] px-4 py-3 flex flex-col gap-2.5 text-sm">
+        {/* Financial Transparency */}
+        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-4 py-3 flex flex-col gap-2.5 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-slate-600 font-medium text-xs sm:text-sm">Cost to generate batch:</span>
             <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs sm:text-sm">
@@ -503,7 +735,7 @@ export const DayCountRecommendPage = () => {
         </div>
 
         {!hasEnoughCredits && (
-          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-[8px] text-xs text-rose-800">
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-2 rounded-xl text-xs text-rose-800">
             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>
               You need {creditsNeeded} credits. Please buy more credits on the Credits page before proceeding.
@@ -524,8 +756,8 @@ export const DayCountRecommendPage = () => {
           </div>
         )}
 
-        {/* Actions Footer Buttons */}
-        <div className="pt-1 flex flex-col-reverse sm:flex-row items-center justify-between gap-3">
+        {/* Actions Footer */}
+        <div className="pt-2 flex flex-col-reverse sm:flex-row items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => navigate('/batches/new')}
@@ -539,7 +771,7 @@ export const DayCountRecommendPage = () => {
             type="button"
             onClick={handleGenerate}
             disabled={isGenerating || !hasEnoughCredits || selectedDates.length !== selectedDayCount}
-            className="w-full sm:w-auto px-6 py-2.5 bg-[#1E88E5] hover:bg-[#1565C0] text-[#FFFFFF] font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="w-full sm:w-auto px-7 py-3 bg-[#1E88E5] hover:bg-[#1565C0] text-[#FFFFFF] font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {isGenerating ? (
               <>
@@ -548,7 +780,7 @@ export const DayCountRecommendPage = () => {
               </>
             ) : (
               <>
-                <span>Generate My Posts</span>
+                <span>Generate {selectedDayCount} Polished Posts</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}

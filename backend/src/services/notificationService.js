@@ -3,11 +3,17 @@ const twilio = require('twilio');
 const { Notification } = require('../models');
 const AppError = require('../utils/AppError');
 
-/**
- * Notification Service
- * Dispatches multi-channel failure and low-stock alerts via Email (Resend) and SMS (Twilio),
- * logging Notification audit documents with delivery tracking.
- */
+const maskEmail = (email) => {
+  if (!email || typeof email !== 'string') return '***';
+  const parts = email.split('@');
+  if (parts.length !== 2) return '***';
+  return `${parts[0].slice(0, 2)}***@${parts[1]}`;
+};
+
+const maskPhone = (phone) => {
+  if (!phone || typeof phone !== 'string') return '***';
+  return `${phone.slice(0, 3)}***${phone.slice(-3)}`;
+};
 
 let resendClient = null;
 const getResendClient = () => {
@@ -102,7 +108,7 @@ const dispatchAlerts = async (user, notification, subject, message) => {
       });
       successfulChannels.push('email');
     } catch (err) {
-      console.warn(`[NotificationService] Email delivery to ${recipientEmail} failed:`, err.message);
+      console.warn(`[NotificationService] Email delivery to ${maskEmail(recipientEmail)} failed:`, err.message);
       channelErrors.push(`Email error: ${err.message}`);
     }
   }
@@ -120,7 +126,7 @@ const dispatchAlerts = async (user, notification, subject, message) => {
       });
       successfulChannels.push('sms');
     } catch (err) {
-      console.warn(`[NotificationService] SMS delivery to ${recipientPhone} failed:`, err.message);
+      console.warn(`[NotificationService] SMS delivery to ${maskPhone(recipientPhone)} failed:`, err.message);
       channelErrors.push(`SMS error: ${err.message}`);
     }
   }
@@ -235,6 +241,37 @@ const notifyLowStock = async (user, batch) => {
 };
 
 /**
+ * Dispatches an alert when an unconfirmed draft batch is approaching expiration (24-48 hours).
+ *
+ * @param {Object} user - User document
+ * @param {Object} batch - Expiring ContentBatch document
+ * @returns {Promise<Object>} Created and updated Notification document
+ */
+const notifyDraftExpiring = async (user, batch) => {
+  const theme = batch?.intake?.theme ? ` ("${batch.intake.theme}")` : '';
+  const message =
+    `Your draft content batch${theme} is approaching expiration and will be removed soon. Please review and confirm your batch to schedule your posts before it expires!`;
+
+  const notification = await Notification.create({
+    userId: user._id,
+    postId: null,
+    batchId: batch?._id || null,
+    type: 'draft_expiring',
+    channels: [],
+    message,
+    deliveryStatus: 'pending',
+    resolved: false,
+  });
+
+  return await dispatchAlerts(
+    user,
+    notification,
+    'PostBot Action Required: Your Draft Content Batch Is Expiring Soon',
+    message
+  );
+};
+
+/**
  * Retrieves a paginated list of user notification records.
  *
  * @param {string} userId - User ID
@@ -294,6 +331,7 @@ module.exports = {
   notifyPostingFailure,
   notifyTokenExpired,
   notifyLowStock,
+  notifyDraftExpiring,
   getNotifications,
   resolveNotification,
 };

@@ -27,14 +27,15 @@ const RESTLI_PROTOCOL_VERSION = '2.0.0';
  *
  * @returns {{ clientId: string, clientSecret: string, redirectUri: string, stateSecret: string }}
  */
+const { getJwtSecret } = require('../config/env');
+
+const inFlightRefreshes = new Map();
+
 const getLinkedInConfig = () => {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
   const redirectUri = process.env.LINKEDIN_REDIRECT_URI;
-  const stateSecret =
-    process.env.LINKEDIN_STATE_SECRET ||
-    process.env.JWT_SECRET ||
-    'dev-postbot-jwt-secret-key';
+  const stateSecret = process.env.LINKEDIN_STATE_SECRET || getJwtSecret();
 
   if (!clientId || !clientSecret || !redirectUri) {
     throw new AppError(
@@ -237,73 +238,87 @@ const refreshToken = async (user) => {
     userDoc = await User.findById(userDoc._id).select('+linkedin.accessToken +linkedin.refreshToken');
   }
 
-  const currentRefreshToken = userDoc?.linkedin?.refreshToken;
-  if (!currentRefreshToken) {
-    throw new AppError(
-      'No LinkedIn refresh token found for user. Please reconnect your LinkedIn account.',
-      401
-    );
+  const userIdKey = (userDoc?._id || user).toString();
+
+  // If a refresh is already in-flight for this user, await the active promise to prevent invalidating refresh tokens
+  if (inFlightRefreshes.has(userIdKey)) {
+    return inFlightRefreshes.get(userIdKey);
   }
 
-  const { clientId, clientSecret } = getLinkedInConfig();
+  const refreshPromise = (async () => {
+    const currentRefreshToken = userDoc?.linkedin?.refreshToken;
+    if (!currentRefreshToken) {
+      throw new AppError(
+        'No LinkedIn refresh token found for user. Please reconnect your LinkedIn account.',
+        401
+      );
+    }
 
-  let refreshData;
-  try {
-    const params = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: currentRefreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-    });
+    const { clientId, clientSecret } = getLinkedInConfig();
 
-    const response = await axios.post(
-      'https://www.linkedin.com/oauth/v2/accessToken',
-      params.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+    let refreshData;
+    try {
+      const params = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: currentRefreshToken,
+        client_id: clientId,
+        client_secret: clientSecret,
+      });
+
+      const response = await axios.post(
+        'https://www.linkedin.com/oauth/v2/accessToken',
+        params.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        }
+      );
+      refreshData = response.data;
+    } catch (error) {
+      const errData = error.response?.data;
+      const description = errData?.error_description || errData?.message || error.message;
+      throw new AppError(
+        `LinkedIn token refresh rejected: ${description}. Please reconnect your LinkedIn account.`,
+        401
+      );
+    }
+
+    const {
+      access_token: newAccessToken,
+      expires_in: expiresIn,
+      refresh_token: newRefreshToken,
+    } = refreshData;
+
+    if (!newAccessToken) {
+      throw new AppError('LinkedIn refresh response did not contain an access token.', 502);
+    }
+
+    const tokenExpiresAt = new Date(Date.now() + (expiresIn || 5184000) * 1000);
+
+    // If userDoc is a Mongoose document, update the fields in memory/db
+    if (userDoc?.linkedin) {
+      userDoc.linkedin.accessToken = newAccessToken;
+      if (newRefreshToken) {
+        userDoc.linkedin.refreshToken = newRefreshToken;
       }
-    );
-    refreshData = response.data;
-  } catch (error) {
-    const errData = error.response?.data;
-    const description = errData?.error_description || errData?.message || error.message;
-    throw new AppError(
-      `LinkedIn token refresh rejected: ${description}. Please reconnect your LinkedIn account.`,
-      401
-    );
-  }
-
-  const {
-    access_token: newAccessToken,
-    expires_in: expiresIn,
-    refresh_token: newRefreshToken,
-  } = refreshData;
-
-  if (!newAccessToken) {
-    throw new AppError('LinkedIn refresh response did not contain an access token.', 502);
-  }
-
-  const tokenExpiresAt = new Date(Date.now() + (expiresIn || 5184000) * 1000);
-
-  // If userDoc is a Mongoose document, update the fields in memory/db
-  if (userDoc?.linkedin) {
-    userDoc.linkedin.accessToken = newAccessToken;
-    if (newRefreshToken) {
-      userDoc.linkedin.refreshToken = newRefreshToken;
+      userDoc.linkedin.tokenExpiresAt = tokenExpiresAt;
+      if (typeof userDoc.save === 'function') {
+        await userDoc.save();
+      }
     }
-    userDoc.linkedin.tokenExpiresAt = tokenExpiresAt;
-    if (typeof userDoc.save === 'function') {
-      await userDoc.save();
-    }
-  }
 
-  return {
-    accessToken: newAccessToken,
-    refreshToken: newRefreshToken || currentRefreshToken,
-    tokenExpiresAt,
-  };
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken || currentRefreshToken,
+      tokenExpiresAt,
+    };
+  })().finally(() => {
+    inFlightRefreshes.delete(userIdKey);
+  });
+
+  inFlightRefreshes.set(userIdKey, refreshPromise);
+  return refreshPromise;
 };
 
 /**

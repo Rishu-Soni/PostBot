@@ -4,15 +4,14 @@ const linkedinService = require('../services/linkedinService');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
+const { getJwtSecret } = require('../config/env');
+
 /**
  * Safely extracts target client webapp URL from OAuth state or environment.
  */
 const resolveClientUrl = (state) => {
   if (state) {
-    const stateSecret =
-      process.env.LINKEDIN_STATE_SECRET ||
-      process.env.JWT_SECRET ||
-      'dev-postbot-jwt-secret-key';
+    const stateSecret = process.env.LINKEDIN_STATE_SECRET || getJwtSecret();
 
     let decoded = null;
     try {
@@ -110,7 +109,8 @@ const callback = asyncHandler(async (req, res, next) => {
     return handleRedirect(req, res);
   }
 
-  const { code, state } = req.query;
+  const code = req.query.code || req.body?.code;
+  const state = req.query.state || req.body?.state;
 
   if (!code || !state) {
     return next(
@@ -124,10 +124,7 @@ const callback = asyncHandler(async (req, res, next) => {
   } catch (err) {
     // If token exchange failed, check if this is a duplicate call where user was already connected in the last 60 seconds
     try {
-      const stateSecret =
-        process.env.LINKEDIN_STATE_SECRET ||
-        process.env.JWT_SECRET ||
-        'dev-postbot-jwt-secret-key';
+      const stateSecret = process.env.LINKEDIN_STATE_SECRET || getJwtSecret();
       const decoded = jwt.verify(state, stateSecret);
       if (decoded?.userId) {
         const existingUser = await User.findById(decoded.userId);
@@ -203,9 +200,28 @@ const disconnect = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Check LinkedIn connection and token status.
+ * Route: GET /api/v1/linkedin/status
+ */
+const getStatus = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select('+linkedin.accessToken +linkedin.tokenExpiresAt');
+  const linkedin = user?.linkedin || {};
+  res.status(200).json({
+    success: true,
+    data: {
+      isConnected: Boolean(linkedin.isConnected),
+      connectedAt: linkedin.connectedAt || null,
+      tokenExpiresAt: linkedin.tokenExpiresAt || null,
+      scope: linkedin.scope || null,
+    },
+  });
+});
+
 module.exports = {
   connect,
   callback,
   disconnect,
+  getStatus,
   handleRedirect,
 };

@@ -304,9 +304,65 @@ const getTransactions = async (userId, pagination = {}) => {
   };
 };
 
+/**
+ * Deducts 1 credit if a post was previously refunded upon failure (creditRefunded === true)
+ * and has now transitioned to status: 'posted'.
+ * Ensures every published post costs exactly 1 net credit.
+ * Reuses the existing charge-after-success transactional pattern.
+ *
+ * @param {Object} post - The post document that just successfully published
+ * @returns {Promise<{ charged: boolean }>}
+ */
+const chargeIfPreviouslyRefunded = async (post) => {
+  if (!post || !post.creditRefunded) {
+    return { charged: false };
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const user = await User.findById(post.userId).session(session);
+    if (!user) {
+      throw new Error(`User ${post.userId} not found during re-charge transaction.`);
+    }
+
+    user.creditBalance = Math.max(0, (user.creditBalance || 0) - 1);
+    await user.save({ session });
+
+    await CreditTransaction.create(
+      [
+        {
+          userId: user._id,
+          postId: post._id,
+          reason: 'generation',
+          amount: -1,
+          balanceAfter: user.creditBalance,
+          note: `Re-charge for successfully published post day ${post.dayIndex} (previously refunded)`,
+        },
+      ],
+      { session }
+    );
+
+    post.creditRefunded = false;
+    await post.save({ session });
+
+    await session.commitTransaction();
+    console.log(`[CreditService] Successfully re-charged 1 credit for previously refunded post ${post._id}`);
+    return { charged: true };
+  } catch (error) {
+    await session.abortTransaction();
+    console.error(`[CreditService] Failed to re-charge credit for post ${post._id}:`, error.message);
+    return { charged: false, error: error.message };
+  } finally {
+    session.endSession();
+  }
+};
+
 module.exports = {
   deductCredits,
   addCredits,
   getBalance,
   getTransactions,
+  chargeIfPreviouslyRefunded,
 };

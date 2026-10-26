@@ -10,6 +10,8 @@ import {
   PlusCircle,
   RotateCw,
   Sparkles,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { batchService } from '../../services/batchService';
 import { postService } from '../../services/postService';
@@ -18,6 +20,7 @@ import { useCredits } from '../../context/CreditsContext';
 import { PostCard } from '../../components/posts/PostCard';
 import { Badge } from '../../components/common/Badge';
 import { Skeleton } from '../../components/common/Skeleton';
+import { Modal } from '../../components/common/Modal';
 
 export const BatchDetailPage = () => {
   const { batchId } = useParams();
@@ -29,6 +32,8 @@ export const BatchDetailPage = () => {
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [retryingPosts, setRetryingPosts] = useState({});
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadBatchDetails = async () => {
     try {
@@ -86,6 +91,30 @@ export const BatchDetailPage = () => {
     }
   };
 
+  // Delete batch (cancels remaining scheduled posts and refunds credits for unposted posts)
+  const handleDeleteBatch = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await batchService.deleteBatch(batchId);
+      const refunded = res?.data?.refundedCredits;
+      if (refunded && refunded > 0) {
+        showToast(
+          `Batch deleted. ${refunded} credit${refunded > 1 ? 's' : ''} refunded for unposted post${refunded > 1 ? 's' : ''}.`,
+          'info'
+        );
+      } else {
+        showToast('Batch and scheduled posts deleted successfully.', 'info');
+      }
+      if (refreshBalance) {
+        refreshBalance();
+      }
+      navigate('/batches');
+    } catch (err) {
+      showToast(err.message || 'Failed to delete batch.', 'error');
+      setIsDeleting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6 max-w-7xl mx-auto py-6">
@@ -139,8 +168,8 @@ export const BatchDetailPage = () => {
           </h1>
         </div>
 
-        {/* Metric Counter / Progress Summary */}
-        <div className="flex items-center gap-4 border-t md:border-t-0 md:border-l border-border-warm pt-4 md:pt-0 md:pl-8">
+        {/* Metric Counter / Progress Summary & Actions */}
+        <div className="flex flex-wrap items-center gap-4 border-t md:border-t-0 md:border-l border-border-warm pt-4 md:pt-0 md:pl-8">
           <div className="flex items-center gap-2 text-sm text-ink-muted">
             <span className="p-1 rounded bg-surface text-emerald-600">
               <CheckCircle2 className="w-4 h-4" />
@@ -168,6 +197,18 @@ export const BatchDetailPage = () => {
               </div>
             </>
           )}
+
+          <div className="h-4 w-[1px] bg-border-warm" />
+
+          <button
+            type="button"
+            onClick={() => setShowDeleteModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer active:scale-98"
+            title="Delete this batch"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete Batch</span>
+          </button>
         </div>
       </section>
 
@@ -219,6 +260,49 @@ export const BatchDetailPage = () => {
           />
         ))}
       </section>
+
+      {/* Delete Batch Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => !isDeleting && setShowDeleteModal(false)}
+        title="Delete Content Batch?"
+        description="Are you sure you want to delete this batch and cancel its scheduled posts?"
+      >
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold">This action cannot be undone.</p>
+              <p className="text-rose-700">
+                All posts in this batch will be permanently removed.
+                {pendingCount > 0
+                  ? ` ${pendingCount} pending scheduled post${pendingCount > 1 ? 's' : ''} will be cancelled and ${pendingCount} credit${pendingCount > 1 ? 's' : ''} refunded.`
+                  : ' Any remaining schedule will be stopped.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={isDeleting}
+              className="px-4 py-2 rounded-lg border border-border-warm bg-white hover:bg-surface text-xs font-semibold text-ink transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteBatch}
+              disabled={isDeleting}
+              className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isDeleting ? 'Deleting...' : 'Delete Batch'}</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

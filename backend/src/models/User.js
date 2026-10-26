@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
+const { encrypt, decrypt } = require('../utils/crypto');
 
 /**
  * users
@@ -33,7 +34,7 @@ const userSchema = new Schema(
     // --- Credits ---
     creditBalance: { type: Number, required: true, default: 0, min: 0 },
 
-    // --- Optional bring-your-own image-gen key (encrypt at rest in real deployment) ---
+    // --- Optional bring-your-own image-gen key (encrypted at rest with AES-256-GCM) ---
     imageGenApiKey: { type: String, default: null, select: false },
     imageGenProvider: { type: String, default: null }, // e.g. "openai", "stability"
 
@@ -52,4 +53,34 @@ const userSchema = new Schema(
   { timestamps: true } // createdAt, updatedAt
 );
 
+// Decrypt sensitive credentials when document is loaded from MongoDB
+userSchema.post('init', function (doc) {
+  if (doc.linkedin?.accessToken) {
+    doc.linkedin.accessToken = decrypt(doc.linkedin.accessToken);
+  }
+  if (doc.linkedin?.refreshToken) {
+    doc.linkedin.refreshToken = decrypt(doc.linkedin.refreshToken);
+  }
+  if (doc.imageGenApiKey) {
+    doc.imageGenApiKey = decrypt(doc.imageGenApiKey);
+  }
+});
+
+// Encrypt sensitive credentials before saving to MongoDB
+userSchema.pre('save', function () {
+  if (this.linkedin) {
+    if (this.isModified('linkedin.accessToken') && this.linkedin.accessToken) {
+      this.linkedin.accessToken = encrypt(this.linkedin.accessToken);
+    }
+    if (this.isModified('linkedin.refreshToken') && this.linkedin.refreshToken) {
+      this.linkedin.refreshToken = encrypt(this.linkedin.refreshToken);
+    }
+  }
+
+  if (this.isModified('imageGenApiKey') && this.imageGenApiKey) {
+    this.imageGenApiKey = encrypt(this.imageGenApiKey);
+  }
+});
+
 module.exports = mongoose.model('User', userSchema);
+

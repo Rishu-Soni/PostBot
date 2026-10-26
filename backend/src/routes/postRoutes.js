@@ -9,6 +9,7 @@ const creditCheck = require('../middleware/creditCheck');
 const rateLimiter = require('../middleware/rateLimiter');
 const linkedinGuard = require('../middleware/linkedinGuard');
 const upload = require('../middleware/upload');
+const { validateImageBuffer } = require('../middleware/upload');
 const { updatePostSchema, regeneratePostSchema } = require('../validators');
 
 // Fetch single post
@@ -39,13 +40,41 @@ router.post(
   postController.regenerate
 );
 
-// Direct user image upload - 0 credits
+// Direct user image upload - 0 credits (supports both /image and /image/upload)
 router.post(
   '/:postId/image',
   auth,
   ownsResource(Post, 'postId'),
   upload.single('image'),
+  validateImageBuffer,
   postController.uploadImage
+);
+router.post(
+  '/:postId/image/upload',
+  auth,
+  ownsResource(Post, 'postId'),
+  upload.single('image'),
+  validateImageBuffer,
+  postController.uploadImage
+);
+
+
+// Stock photo selection - 0 credits (free manual choice)
+router.post(
+  '/:postId/image/stock',
+  auth,
+  ownsResource(Post, 'postId'),
+  postController.stockImage
+);
+
+// On-demand AI image generation - 1 credit (calls AI, charges on success)
+router.post(
+  '/:postId/image/generate',
+  auth,
+  ownsResource(Post, 'postId'),
+  rateLimiter,
+  creditCheck,
+  postController.generateImage
 );
 
 // Immediate publish validation button (bypasses scheduler)

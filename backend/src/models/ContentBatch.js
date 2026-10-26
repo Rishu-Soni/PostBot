@@ -13,12 +13,31 @@ const contentBatchSchema = new Schema(
 
     // --- Guided prompt intake (spec step 1) ---
     intake: {
-      theme: { type: String, required: true },
+      theme: { type: String, default: 'Weekly Founder Insights' },
       professionalLevel: { type: String, default: null }, // e.g. "casual", "executive"
       tone: { type: String, default: null }, // "feel"
       writingStyle: { type: String, default: null },
       brainDump: { type: String, required: true }, // raw free-text input
+      weeklyGoal: { type: String, default: null },
+      voiceDNA: { type: Schema.Types.Mixed, default: null },
     },
+
+    // --- Per-Post Strategy Cards & Overview ---
+    extractedTheme: { type: String, default: null },
+    strategyOverview: { type: String, default: null },
+    postsStrategy: [
+      {
+        dayIndex: { type: Number, required: true },
+        subtopic: { type: String, default: '' },
+        angle: { type: String, default: '' },
+        hookPreview: { type: String, default: '' },
+        matchedTemplateId: { type: String, default: 'metric-teardown' },
+        matchedTemplateName: { type: String, default: 'The Metric Teardown' },
+        tone: { type: String, default: 'Direct & Contrarian' },
+        coreInsight: { type: String, default: '' },
+        ctaDirection: { type: String, default: '' },
+      },
+    ],
 
     // --- Hidden elaboration (spec step 2 — internal only, never sent to frontend) ---
     elaboratedStrategy: { type: String, required: true, select: false },
@@ -41,6 +60,10 @@ const contentBatchSchema = new Schema(
       type: Date,
       default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days expiry for drafts
       index: true,
+    },
+    expiryWarningSent: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

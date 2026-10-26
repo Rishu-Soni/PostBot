@@ -15,7 +15,7 @@ const notificationSchema = new Schema(
 
     type: {
       type: String,
-      enum: ['posting_failure', 'token_expired', 'low_stock'],
+      enum: ['posting_failure', 'token_expired', 'low_stock', 'draft_expiring'],
       required: true,
     },
 

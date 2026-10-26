@@ -12,13 +12,16 @@ import {
   ExternalLink,
   RotateCw,
   Check,
+  Monitor,
+  Smartphone,
+  Eye,
 } from 'lucide-react';
 import { batchService } from '../../services/batchService';
 import { postService } from '../../services/postService';
 import { useAuth } from '../../context/AuthContext';
 import { useCredits } from '../../context/CreditsContext';
 import { useToast } from '../../context/ToastContext';
-import { PostCard } from '../../components/posts/PostCard';
+import { LinkedInPostPreviewCard } from '../../components/posts/LinkedInPostPreviewCard';
 import { PostEditDrawer } from '../../components/posts/PostEditDrawer';
 import { Modal } from '../../components/common/Modal';
 import { Skeleton } from '../../components/common/Skeleton';
@@ -34,6 +37,11 @@ export const BatchReviewPage = () => {
   const [batch, setBatch] = useState(null);
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Preview display controls: 'desktop' (~550px) | 'mobile' (375px)
+  const [previewWidth, setPreviewWidth] = useState('desktop');
+  // Hook preview toggle: false: expand all posts, true: preview 3-line hooks only
+  const [globalHookPreview, setGlobalHookPreview] = useState(false);
 
   // Per-card isolated busy state: { [postId]: 'Busy message...' }
   const [busyPosts, setBusyPosts] = useState({});
@@ -255,12 +263,60 @@ export const BatchReviewPage = () => {
             </p>
           </div>
 
-          {/* Cancel Draft Option */}
-          <div className="flex items-center self-start md:self-center">
+          {/* View Controls & Draft Actions */}
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-center">
+            {/* Feed Width Toggle (Desktop 550px vs Mobile 375px) */}
+            <div className="inline-flex items-center p-1 bg-surface border border-border-warm rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setPreviewWidth('desktop')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                  previewWidth === 'desktop'
+                    ? 'bg-white text-ink shadow-2xs border border-border-warm/60'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+                title="Desktop feed preview (~550px card width)"
+              >
+                <Monitor className="w-3.5 h-3.5 text-[#0a66c2]" />
+                <span>Desktop Feed</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewWidth('mobile')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                  previewWidth === 'mobile'
+                    ? 'bg-white text-ink shadow-2xs border border-border-warm/60'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+                title="Mobile feed preview (375px card width)"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-[#0a66c2]" />
+                <span>Mobile (375px)</span>
+              </button>
+            </div>
+
+            {/* Hook Cutoff Preview Toggle */}
+            <button
+              type="button"
+              onClick={() => setGlobalHookPreview((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                globalHookPreview
+                  ? 'bg-blue-50 border-blue-200 text-[#0a66c2]'
+                  : 'bg-white border-border-warm text-ink hover:bg-surface'
+              }`}
+              title="Toggle between seeing only the 3-line hook cutoff or the full post copy"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>{globalHookPreview ? 'Hooks Only (3 Lines)' : 'Expand All Posts'}</span>
+            </button>
+
+            <div className="w-px h-6 bg-border-warm hidden sm:block mx-0.5" />
+
+            {/* Cancel Draft Option */}
             <button
               type="button"
               onClick={() => setShowCancelModal(true)}
-              className="text-xs font-semibold text-ink-muted hover:text-rose-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-rose-50 border border-transparent hover:border-rose-200 cursor-pointer"
+              className="text-xs font-semibold text-ink-muted hover:text-rose-600 transition-colors px-3 py-2 rounded-xl hover:bg-rose-50 border border-transparent hover:border-rose-200 cursor-pointer"
             >
               Cancel Draft
             </button>
@@ -288,16 +344,12 @@ export const BatchReviewPage = () => {
         </div>
       </section>
 
-      {/* Responsive Dynamic Post Cards Grid */}
+      {/* 2-Column Authentic LinkedIn Feed Grid */}
       <section
-        className={`grid gap-6 ${
+        className={`grid gap-8 items-start ${
           finalCount === 1
-            ? 'grid-cols-1 max-w-xl mx-auto'
-            : finalCount === 2
-            ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto'
-            : finalCount === 3
-            ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-            : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+            ? 'grid-cols-1 max-w-[555px] mx-auto'
+            : 'grid-cols-1 lg:grid-cols-2 max-w-[1160px] mx-auto'
         }`}
       >
         {dayIndices.map((day) => {
@@ -306,11 +358,10 @@ export const BatchReviewPage = () => {
           const busyText = post ? busyPosts[post._id] : '';
 
           return (
-            <PostCard
+            <LinkedInPostPreviewCard
               key={day}
               post={post}
               dayIndex={day}
-              mode="review"
               isMissing={!post}
               onRetryMissing={handleRetryMissingDay}
               onEdit={handleEdit}
@@ -320,6 +371,9 @@ export const BatchReviewPage = () => {
               onRemoveImage={handleRemoveImage}
               isBusy={isBusy}
               busyActionText={busyText}
+              user={user}
+              globalHookPreview={globalHookPreview}
+              previewWidth={previewWidth}
             />
           );
         })}
@@ -345,7 +399,7 @@ export const BatchReviewPage = () => {
               <p className="font-semibold text-ink">Publishing Schedule</p>
               <p className="text-ink-muted">
                 Posts will go out daily around{' '}
-                <span className="font-bold text-ink">{user?.defaultPostTime || '09:00'}</span>{' '}
+                <span className="font-bold text-ink">{user?.defaultPostTime || '18:45'}</span>{' '}
                 ({user?.timezone || 'America/New_York'}) starting tomorrow.{' '}
                 <Link to="/settings" className="text-brand font-medium hover:underline ml-1">
                   Change time

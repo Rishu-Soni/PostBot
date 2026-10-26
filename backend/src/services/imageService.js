@@ -349,6 +349,28 @@ const findOrGenerateImage = async (
 };
 
 /**
+ * Searches stock image providers in order (Unsplash -> Pexels -> Pixabay) without AI generation fallback.
+ *
+ * @param {string} caption
+ * @param {string} topic
+ * @returns {Promise<{ url: string, source: 'stock', stockProvider: string, altText: string }|null>}
+ */
+const searchStockImage = async (caption, topic) => {
+  const { query, keywords } = extractSearchKeywords(caption, topic);
+
+  const unsplashResult = await searchUnsplash(query, keywords);
+  if (unsplashResult) return unsplashResult;
+
+  const pexelsResult = await searchPexels(query, keywords);
+  if (pexelsResult) return pexelsResult;
+
+  const pixabayResult = await searchPixabay(query, keywords);
+  if (pixabayResult) return pixabayResult;
+
+  return null;
+};
+
+/**
  * Processes and uploads a user-provided image buffer to persistent Cloudinary CDN storage.
  * Supports both Multer file object ({ buffer, mimetype }) and positional arguments (buffer, mimetype).
  *
@@ -419,4 +441,6 @@ module.exports = {
   findOrGenerateImage,
   generateAIImage,
   uploadUserImage,
+  searchStockImage,
+  extractSearchKeywords,
 };

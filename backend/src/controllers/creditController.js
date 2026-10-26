@@ -1,4 +1,6 @@
 const { CreditTransaction } = require('../models');
+const creditService = require('../services/creditService');
+const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
@@ -44,7 +46,48 @@ const getTransactions = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Administrative credit adjustment.
+ * Route: POST /api/v1/credits/admin/adjust
+ * Protected by adminAuth (x-admin-key), NOT user JWT.
+ */
+const adminAdjust = asyncHandler(async (req, res, next) => {
+  const { userId, amount, reason, note } = req.body;
+  if (!userId || amount === undefined || amount === null) {
+    return next(new AppError('userId and amount are required for credit adjustment.', 400));
+  }
+
+  const numAmount = Number(amount);
+  if (isNaN(numAmount) || numAmount === 0) {
+    return next(new AppError('amount must be a non-zero number.', 400));
+  }
+
+  let result;
+  if (numAmount > 0) {
+    result = await creditService.addCredits({
+      userId,
+      amount: numAmount,
+      reason: reason || 'purchase',
+      note: note || 'Administrative credit addition',
+    });
+  } else {
+    result = await creditService.deductCredits({
+      userId,
+      amount: Math.abs(numAmount),
+      reason: reason || 'generation',
+      note: note || 'Administrative credit deduction',
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+});
+
 module.exports = {
   getBalance,
   getTransactions,
+  adminAdjust,
 };
+

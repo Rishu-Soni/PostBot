@@ -21,8 +21,12 @@ export const batchService = {
     return res.data;
   },
 
-  async updateDayCount(batchId, finalDayCount, scheduledDates) {
-    const res = await api.patch(`/batches/${batchId}/day-count`, { finalDayCount, scheduledDates });
+  async updateDayCount(batchId, finalDayCount, scheduledDates, postConfigs = []) {
+    const res = await api.patch(`/batches/${batchId}/day-count`, {
+      finalDayCount,
+      scheduledDates,
+      postConfigs,
+    });
     return res.data;
   },
 
@@ -32,6 +36,11 @@ export const batchService = {
   },
 
   async cancelBatch(batchId) {
+    const res = await api.delete(`/batches/${batchId}`);
+    return res.data;
+  },
+
+  async deleteBatch(batchId) {
     const res = await api.delete(`/batches/${batchId}`);
     return res.data;
   },

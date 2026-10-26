@@ -23,8 +23,50 @@ const refundPostCredit = async (user, post, reasonNote) => {
 };
 
 /**
+ * Finds unconfirmed draft batches approaching expiration (within 48 hours)
+ * and dispatches a warning notification prompting the user to confirm or lose the batch.
+ */
+const warnExpiringDrafts = async () => {
+  const now = new Date();
+  const warningWindow = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  try {
+    const expiringDrafts = await ContentBatch.find({
+      status: 'draft',
+      expiryWarningSent: { $ne: true },
+      expiresAt: { $gt: now, $lte: warningWindow },
+    });
+
+    if (!expiringDrafts || expiringDrafts.length === 0) return 0;
+
+    console.log(`[Scheduler] Found ${expiringDrafts.length} draft batch(es) approaching expiration...`);
+    let warnedCount = 0;
+
+    for (const batch of expiringDrafts) {
+      try {
+        const user = await User.findById(batch.userId);
+        if (user) {
+          await notificationService.notifyDraftExpiring(user, batch);
+        }
+        batch.expiryWarningSent = true;
+        await batch.save();
+        warnedCount++;
+        console.log(`[Scheduler] Sent expiration warning for draft batch ${batch._id} to user ${batch.userId}`);
+      } catch (err) {
+        console.error(`[Scheduler] Failed to send expiration warning for batch ${batch._id}:`, err.message);
+      }
+    }
+
+    return warnedCount;
+  } catch (error) {
+    console.error('[Scheduler] Error checking expiring drafts for warnings:', error.message);
+    return 0;
+  }
+};
+
+/**
  * Purges draft batches older than 7 days and their associated posts entirely from the database.
- * Does not revert credits for expired unconfirmed drafts per retention policy.
+ * Reverts credits for any unconfirmed draft posts before deletion.
  */
 const cleanupExpiredDrafts = async () => {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -41,12 +83,33 @@ const cleanupExpiredDrafts = async () => {
 
     if (!expiredDrafts || expiredDrafts.length === 0) return 0;
 
-    console.log(`[Scheduler] Purging ${expiredDrafts.length} expired draft batch(es) (> 7 days old)...`);
+    console.log(`[Scheduler] Purging ${expiredDrafts.length} expired draft batch(es)...`);
     let deletedCount = 0;
 
     for (const draft of expiredDrafts) {
       try {
         const posts = await Post.find({ batchId: draft._id });
+
+        // Refund credits for any generated posts that were charged and not previously refunded
+        const unrefundedCount = posts.filter((p) => !p.creditRefunded).length;
+        if (unrefundedCount > 0) {
+          try {
+            await creditService.addCredits(
+              draft.userId,
+              unrefundedCount,
+              'refund',
+              `Automatic refund for ${unrefundedCount} unconfirmed post(s) from expired draft batch ${draft._id}`
+            );
+            console.log(
+              `[Scheduler] Refunded ${unrefundedCount} credit(s) to user ${draft.userId} for expired draft batch ${draft._id}`
+            );
+          } catch (refundErr) {
+            console.error(
+              `[Scheduler] Failed to refund credits for expired draft batch ${draft._id}:`,
+              refundErr.message
+            );
+          }
+        }
 
         // Delete all child posts entirely
         await Post.deleteMany({ batchId: draft._id });
@@ -79,14 +142,15 @@ const STUCK_PROCESSING_THRESHOLD_MS = 10 * 60 * 1000;
  * Executes a single complete scheduler pass across all due pending posts (§6).
  * Called automatically by the cron runner or manually via POST /api/v1/internal/scheduler/run-now.
  *
- * 1. Purges draft batches older than 3 days entirely from the database.
- * 2. Resets any posts stuck in 'processing' state back to 'pending'.
- * 3. Queries due pending posts (scheduledTime <= now).
- * 4. Atomically claims each due post with status 'processing'.
- * 5. Validates user LinkedIn credentials and proactively refreshes expiring tokens.
- * 6. Publishes due posts sequentially to respect LinkedIn API burst limits.
- * 7. Dispatches failure notifications on API or token errors.
- * 8. Detects batch exhaustion and triggers low-stock reminders.
+ * 1. Warns users with draft batches expiring within 48 hours.
+ * 2. Purges draft batches older than 7 days entirely from the database, refunding unconfirmed posts.
+ * 3. Resets any posts stuck in 'processing' state back to 'pending'.
+ * 4. Queries due pending posts (scheduledTime <= now).
+ * 5. Atomically claims each due post with status 'processing'.
+ * 6. Validates user LinkedIn credentials and proactively refreshes expiring tokens.
+ * 7. Publishes due posts sequentially to respect LinkedIn API burst limits.
+ * 8. Dispatches failure notifications on API or token errors.
+ * 9. Detects batch exhaustion and triggers low-stock reminders.
  *
  * @returns {Promise<{ processedCount: number, postedCount: number, failedCount: number, exhaustedBatchesCount: number }>}
  */
@@ -94,7 +158,10 @@ const runSchedulerPass = async () => {
   const now = new Date();
   console.log(`[Scheduler] Starting scheduler pass at ${now.toISOString()}`);
 
-  // Step 0: Purge draft batches older than 3 days entirely from the database
+  // Step 0a: Warn drafts expiring within 48h
+  await warnExpiringDrafts();
+
+  // Step 0b: Purge expired draft batches and refund unconfirmed posts
   await cleanupExpiredDrafts();
 
   // Step 1: Reset posts stuck in 'processing' state (e.g. from crashed server processes) older than 10 minutes
@@ -177,8 +244,9 @@ const runSchedulerPass = async () => {
     const claimedPost = await Post.findOneAndUpdate(
       { _id: post._id, status: 'pending' },
       { $set: { status: 'processing' } },
-      { new: true }
+      { returnDocument: 'after' }
     );
+
 
     if (!claimedPost) {
       console.log(`[Scheduler] Post ${post._id} was already claimed by another pass. Skipping.`);
@@ -243,6 +311,7 @@ const runSchedulerPass = async () => {
         claimedPost.postedAt = result.postedAt || new Date();
         claimedPost.failureReason = null;
         await claimedPost.save();
+        await creditService.chargeIfPreviouslyRefunded(claimedPost);
         postedCount++;
         console.log(`[Scheduler] Successfully published post ${claimedPost._id} to LinkedIn. URN: ${claimedPost.linkedinPostId}`);
       } catch (postErr) {
@@ -289,4 +358,5 @@ const runSchedulerPass = async () => {
 module.exports = {
   runSchedulerPass,
   cleanupExpiredDrafts,
+  warnExpiringDrafts,
 };

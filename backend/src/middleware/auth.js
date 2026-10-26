@@ -3,7 +3,7 @@ const { User } = require('../models');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-postbot-jwt-secret-key';
+const { getJwtSecret } = require('../config/env');
 
 /**
  * Verifies JWT token from Authorization header and attaches the user document to req.user.
@@ -23,7 +23,7 @@ const auth = asyncHandler(async (req, res, next) => {
 
   let decoded;
   try {
-    decoded = jwt.verify(token, JWT_SECRET);
+    decoded = jwt.verify(token, getJwtSecret());
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return next(new AppError('Authentication token has expired. Please log in again.', 401));

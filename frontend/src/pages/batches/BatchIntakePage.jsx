@@ -1,63 +1,90 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
   ArrowRight,
   Zap,
-  ListPlus,
-  Check,
   CheckCircle2,
-  AlertCircle,
   HelpCircle,
   Loader2,
-  ChevronDown,
+  Mic,
+  MicOff,
+  Sliders,
+  TrendingUp,
+  AlertTriangle,
+  MessageSquareQuote,
+  Flame,
+  Target,
 } from 'lucide-react';
 import { batchService } from '../../services/batchService';
 import { useToast } from '../../context/ToastContext';
+import { useSpeechToText } from '../../hooks/useSpeechToText';
+import { VoiceTemplateVaultModal } from '../../components/modals/VoiceTemplateVaultModal';
+import {
+  getVoiceDNA,
+  getAllLayoutTemplates,
+  getBrainDumpDraft,
+  saveBrainDumpDraft,
+  getWeeklyGoalDraft,
+  saveWeeklyGoalDraft,
+  clearDrafts,
+} from '../../utils/voiceVaultStorage';
 
 const ROTATING_MESSAGES = [
   'Reading and digesting your notes...',
-  'Finding the hidden throughlines and hooks...',
-  'Structuring a high-converting narrative arc...',
-  'Extracting actionable founder takeaways...',
+  'Extracting core throughlines and weekly themes...',
+  'Auto-matching narrative arcs with layout templates...',
+  'Formulating per-post angles and hook directions...',
   'Calculating optimal posting cadence...',
 ];
 
-const TARGET_IDENTITIES = [
-  'Senior Founder / CEO',
-  'Early-Stage Solo Bootstrapper',
-  'B2B SaaS Product Leader',
-  'Technical Co-founder / CTO',
-  'Growth Engineer & Marketer',
-];
-
-const TONE_PRESETS = [
-  'Direct & Contrarian',
-  'Empathetic & Narrative',
-  'Analytical & Data-Driven',
-  'Pragmatic & Technical',
-  'Visionary & Strategic',
-];
-
-const STYLE_PRESETS = [
-  'Short punchy sentences with bullet lists',
-  'Actionable teardowns with frameworks',
-  'Personal founder journey with metrics',
-  'Conversational with a strong provocative opening hook',
-  'Deep-dive case study with breakdown',
+const THOUGHT_TRIGGERS = [
+  {
+    label: '+ 📈 Win or Metric',
+    icon: TrendingUp,
+    textToInsert: '\n• [Win/Metric]: What happened, exact numbers/%, and what caused it:\n',
+  },
+  {
+    label: '+ 💥 Bug or Hard Lesson',
+    icon: AlertTriangle,
+    textToInsert: '\n• [Hard Lesson]: What broke or went wrong this week, and how we fixed it:\n',
+  },
+  {
+    label: '+ 💬 Customer/Founder Quote',
+    icon: MessageSquareQuote,
+    textToInsert: '\n• [Conversation]: Something surprising a customer or peer said this week:\n',
+  },
+  {
+    label: '+ 🔥 Unpopular Opinion',
+    icon: Flame,
+    textToInsert: '\n• [Hot Take]: Something everyone in my industry is doing wrong right now:\n',
+  },
 ];
 
 export const BatchIntakePage = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const textareaRef = useRef(null);
 
-  const [theme, setTheme] = useState('');
-  const [professionalLevel, setProfessionalLevel] = useState('Senior Founder / CEO');
-  const [tone, setTone] = useState('Direct & Contrarian');
-  const [writingStyle, setWritingStyle] = useState('Short punchy sentences with bullet lists');
-  const [brainDump, setBrainDump] = useState('');
+  // Voice & Template Vault State
+  const [voiceDNA, setVoiceDNA] = useState(getVoiceDNA);
+  const [layoutTemplates, setLayoutTemplates] = useState(getAllLayoutTemplates);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
+
+  // Form State
+  const [brainDump, setBrainDump] = useState(getBrainDumpDraft);
+  const [weeklyGoal, setWeeklyGoal] = useState(getWeeklyGoalDraft);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  // Sync draft auto-saving
+  useEffect(() => {
+    saveBrainDumpDraft(brainDump);
+  }, [brainDump]);
+
+  useEffect(() => {
+    saveWeeklyGoalDraft(weeklyGoal);
+  }, [weeklyGoal]);
 
   // Rotating loading messages
   useEffect(() => {
@@ -72,15 +99,90 @@ export const BatchIntakePage = () => {
     };
   }, [isSubmitting]);
 
-
-  const handleInsertBulletTemplate = () => {
-    const template = `• What we shipped / built this week:\n• Surprising customer metric or feedback:\n• One painful mistake or lesson learned:\n• What we are doubling down on next week:`;
-    setBrainDump((prev) => (prev ? `${prev}\n\n${template}` : template));
-    showToast('Inserted bullet template', 'info');
+  const handleVoiceTranscript = (chunk) => {
+    setBrainDump((prev) => {
+      const trimmed = prev.trimEnd();
+      const textToAppend = chunk.trim();
+      if (!textToAppend) return prev;
+      const combined = trimmed ? `${trimmed} ${textToAppend}` : textToAppend;
+      return combined.slice(0, 5000);
+    });
   };
+
+  const handleVoiceError = (errorMessage) => {
+    showToast(errorMessage, 'error');
+  };
+
+  const {
+    isSupported: isVoiceSupported,
+    isListening,
+    interimTranscript,
+    stopListening,
+    toggleListening,
+  } = useSpeechToText({
+    onTranscript: handleVoiceTranscript,
+    onError: handleVoiceError,
+  });
+
+  const handleInsertTrigger = (triggerPrompt) => {
+    setBrainDump((prev) => {
+      const trimmed = prev.trimEnd();
+      const newText = trimmed ? `${trimmed}${triggerPrompt}` : triggerPrompt.trimStart();
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.selectionStart = textareaRef.current.value.length;
+          textareaRef.current.selectionEnd = textareaRef.current.value.length;
+        }
+      }, 15);
+      return newText.slice(0, 5000);
+    });
+  };
+
+  // Specificity & Depth Analyzer
+  const analyzeSpecificity = (text) => {
+    const trimmed = text.trim();
+    if (trimmed.length < 100) {
+      return {
+        level: 'low',
+        badge: '💡 Tip: Drop at least 2 raw stories or numbers for best results',
+        badgeColor: 'text-amber-800 bg-amber-50 border-amber-200/80',
+      };
+    }
+
+    const metricRegex = /(\$\d[\d,.]*|\b\d+(\.\d+)?(%|k|x|m|b)?\b)/gi;
+    const metricsMatches = trimmed.match(metricRegex) || [];
+    const metricCount = metricsMatches.length;
+
+    const paragraphs = trimmed
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 15);
+    const ideaCount = Math.max(1, paragraphs.length);
+
+    if (ideaCount >= 2 && metricCount >= 2) {
+      return {
+        level: 'high',
+        badge: `🔥 High Specificity: ${ideaCount} ideas & ${metricCount} concrete metrics detected (Great for 3–5 posts)`,
+        badgeColor: 'text-emerald-800 bg-emerald-50 border-emerald-200/80',
+      };
+    }
+
+    return {
+      level: 'medium',
+      badge: `📊 Detected: ~${ideaCount} distinct ideas & ${metricCount} metric${metricCount === 1 ? '' : 's'}`,
+      badgeColor: 'text-blue-800 bg-blue-50 border-blue-200/80',
+    };
+  };
+
+  const specificity = analyzeSpecificity(brainDump);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (isListening) {
+      stopListening();
+    }
 
     if (!brainDump.trim() || brainDump.trim().length < 20) {
       showToast('Please provide a bit more context in your brain dump (at least a couple of sentences).', 'error');
@@ -90,18 +192,25 @@ export const BatchIntakePage = () => {
     setIsSubmitting(true);
     try {
       const data = await batchService.createBatch({
-        theme: theme.trim() || 'Weekly Founder Insights',
-        professionalLevel,
-        tone,
-        writingStyle,
         brainDump: brainDump.trim(),
+        weeklyGoal: weeklyGoal.trim(),
+        voiceDNA,
+        layoutTemplates,
+        professionalLevel: voiceDNA.role,
+        tone: voiceDNA.baseTone,
       });
 
-      // Navigate to recommendation step
+      // Clear local drafts after successful batch initialization
+      clearDrafts();
+
+      // Navigate to recommendation & strategy review step
       navigate(`/batches/${data.batchId}/recommendation`, {
         state: {
           batchId: data.batchId,
           recommendedDayCount: data.recommendedDayCount,
+          postsStrategy: data.postsStrategy || [],
+          extractedTheme: data.extractedTheme || '',
+          strategyOverview: data.strategyOverview || '',
         },
       });
     } catch (err) {
@@ -128,31 +237,95 @@ export const BatchIntakePage = () => {
       </div>
 
       {/* Main Elevated Form Container Card */}
-      <div className="bg-surface-card border border-border-warm rounded-2xl p-6 sm:p-8 lg:p-10 shadow-md">
-        <form onSubmit={handleSubmit} className="space-y-8">
+      <div className="bg-surface-card border border-border-warm rounded-2xl p-6 sm:p-8 lg:p-10 shadow-md space-y-6">
+        {/* COMPACT ACTIVE VOICE & TEMPLATE DNA BAR (TOP OF CARD) */}
+        <div className="p-3.5 rounded-xl bg-surface border border-border-warm flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-ink">
+            <span className="font-semibold text-[#64748B] flex items-center gap-1">
+              <Sliders className="w-3.5 h-3.5 text-brand" />
+              Active Voice DNA:
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-border-warm font-semibold text-ink shadow-2xs">
+              <span className="text-[#64748B] font-normal">Role:</span> {voiceDNA.role}
+            </span>
+            <span className="text-slate-300 hidden sm:inline">•</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-border-warm font-semibold text-ink shadow-2xs">
+              <span className="text-[#64748B] font-normal">Tone:</span> {voiceDNA.baseTone}
+            </span>
+            <span className="text-slate-300 hidden sm:inline">•</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-border-warm font-semibold text-brand shadow-2xs">
+              {layoutTemplates.length} Layout Templates
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsVaultModalOpen(true)}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-brand bg-brand-soft hover:bg-blue-100 border border-blue-200 transition-colors shadow-2xs cursor-pointer shrink-0"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Customize Voice &amp; Templates</span>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
           {/* SECTION 1: Brain Dump Area */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label htmlFor="brain-dump" className="text-sm font-bold text-ink flex items-center gap-1">
                 Your Brain Dump
                 <span className="text-coral text-base font-bold leading-none">*</span>
               </label>
-              <span
-                className={`text-xs font-semibold font-mono tracking-tight ${
-                  brainDump.length > 4500 ? 'text-coral' : 'text-[#64748B]'
-                }`}
-              >
-                {brainDump.length.toLocaleString()} / 5,000 chars
-              </span>
+
+              {/* LIVE SPECIFICITY & DEPTH METER + CHAR COUNTER */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border transition-all ${specificity.badgeColor}`}
+                >
+                  {specificity.badge}
+                </span>
+                <span
+                  className={`text-xs font-semibold font-mono tracking-tight ${
+                    brainDump.length > 4500 ? 'text-coral' : 'text-[#64748B]'
+                  }`}
+                >
+                  {brainDump.length.toLocaleString()} / 5,000 chars
+                </span>
+              </div>
             </div>
+
             <p className="text-xs text-[#64748B] leading-relaxed">
-              Type or paste bullet points, raw ideas, wins, customer feedback, bugs, or lessons from your week. Don&apos;t worry about formatting.
+              Drop your raw unfiltered notes, metric updates, bug postmortems, customer talks, or hot takes. No formatting needed.
             </p>
 
-            <div className="relative group rounded-xl bg-white border border-border-warm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15 transition-all shadow-inner overflow-hidden">
+            {/* Guided Thought-Trigger Chips Toolbar */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[11px] font-semibold text-[#64748B] mr-1 hidden sm:inline">
+                Thought Triggers:
+              </span>
+              {THOUGHT_TRIGGERS.map((trigger) => {
+                const IconComponent = trigger.icon;
+                return (
+                  <button
+                    key={trigger.label}
+                    type="button"
+                    onClick={() => handleInsertTrigger(trigger.textToInsert)}
+                    disabled={isSubmitting}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-ink bg-white border border-border-warm hover:border-brand/40 hover:bg-brand-soft/30 hover:text-brand transition-all shadow-2xs cursor-pointer active:scale-95"
+                  >
+                    <IconComponent className="w-3.5 h-3.5 text-brand" />
+                    <span>{trigger.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Brain Dump Textarea */}
+            <div className="relative group rounded-xl bg-white border border-border-warm focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/15 transition-all shadow-inner overflow-hidden mt-2">
               <textarea
+                ref={textareaRef}
                 id="brain-dump"
-                rows={7}
+                rows={8}
                 value={brainDump}
                 onChange={(e) => setBrainDump(e.target.value)}
                 maxLength={5000}
@@ -166,13 +339,43 @@ export const BatchIntakePage = () => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleInsertBulletTemplate}
+                    onClick={toggleListening}
                     disabled={isSubmitting}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-ink bg-white border border-border-warm hover:bg-surface hover:text-ink transition-colors shadow-2xs cursor-pointer"
+                    title={
+                      !isVoiceSupported
+                        ? 'Speech recognition is not supported in this browser'
+                        : isListening
+                        ? 'Stop dictation'
+                        : 'Start voice dictation'
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-2xs cursor-pointer ${
+                      isListening
+                        ? 'bg-red-50 text-red-600 border border-red-200 shadow-sm'
+                        : 'text-ink bg-white border border-border-warm hover:bg-surface hover:text-ink'
+                    }`}
                   >
-                    <ListPlus className="w-3.5 h-3.5 text-brand" />
-                    <span>Bullet Template</span>
+                    {isListening ? (
+                      <>
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600" />
+                        </span>
+                        <MicOff className="w-3.5 h-3.5 text-red-600" />
+                        <span>Listening... (Stop)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-brand" />
+                        <span>Voice to Text</span>
+                      </>
+                    )}
                   </button>
+
+                  {isListening && interimTranscript && (
+                    <span className="text-xs text-[#64748B] italic max-w-xs truncate pl-1 hidden sm:inline-block">
+                      &quot;{interimTranscript}&quot;
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5 text-[11px] text-[#64748B] font-medium">
@@ -183,99 +386,24 @@ export const BatchIntakePage = () => {
             </div>
           </div>
 
-          {/* SECTION 2: Weekly Theme, Target Identity & Voice Tone */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-border-light">
-            {/* Weekly Theme */}
-            <div className="space-y-2">
-              <label htmlFor="weekly-theme" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                Weekly Theme or Focus
-              </label>
-              <input
-                id="weekly-theme"
-                type="text"
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                placeholder="e.g. Bootstrapping a SaaS to $10k MRR"
-                disabled={isSubmitting}
-                className="w-full bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink focus:border-brand focus:ring-2 focus:ring-brand/15 placeholder:text-[#94A3B8] shadow-2xs font-medium"
-              />
-            </div>
-
-            {/* Target Identity */}
-            <div className="space-y-2">
-              <label htmlFor="target-identity" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                Target Identity / Level
-              </label>
-              <div className="relative">
-                <select
-                  id="target-identity"
-                  value={professionalLevel}
-                  onChange={(e) => setProfessionalLevel(e.target.value)}
-                  disabled={isSubmitting}
-                  className="w-full appearance-none bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink font-medium focus:border-brand focus:ring-2 focus:ring-brand/15 shadow-2xs pr-10 cursor-pointer"
-                >
-                  {TARGET_IDENTITIES.map((lvl) => (
-                    <option key={lvl} value={lvl}>
-                      {lvl}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-[#64748B]">
-                  <ChevronDown className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-
-            {/* Voice Tone */}
-            <div className="space-y-2">
-              <label htmlFor="voice-tone" className="text-xs font-bold uppercase tracking-wider text-[#64748B]">
-                Voice Tone
-              </label>
-              <div className="relative">
-                <select
-                  id="voice-tone"
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  disabled={isSubmitting}
-                  className="w-full appearance-none bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink font-medium focus:border-brand focus:ring-2 focus:ring-brand/15 shadow-2xs pr-10 cursor-pointer"
-                >
-                  {TONE_PRESETS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-[#64748B]">
-                  <ChevronDown className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 3: Writing Style Suggestion Pills */}
-          <div className="space-y-2.5 pt-2 border-t border-border-light">
-            <span className="text-xs font-semibold text-[#64748B] block">Quick style suggestions:</span>
-            <div className="flex flex-wrap gap-2.5">
-              {STYLE_PRESETS.map((preset) => {
-                const isSelected = writingStyle === preset;
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setWritingStyle(preset)}
-                    disabled={isSubmitting}
-                    className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#EFF6FF] text-[#1E88E5] border border-[#1E88E5] font-semibold'
-                        : 'bg-white text-[#64748B] border border-border-warm hover:border-[#94A3B8] hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{preset}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5] text-[#1E88E5]" />}
-                  </button>
-                );
-              })}
-            </div>
+          {/* SECTION 2: LIGHTWEIGHT OPTIONAL WEEKLY GOAL FIELD */}
+          <div className="space-y-2 pt-2 border-t border-border-light">
+            <label htmlFor="weekly-goal" className="text-xs font-bold uppercase tracking-wider text-[#64748B] flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5 text-brand" />
+              <span>Weekly Goal or Plug (Optional)</span>
+            </label>
+            <input
+              id="weekly-goal"
+              type="text"
+              value={weeklyGoal}
+              onChange={(e) => setWeeklyGoal(e.target.value)}
+              placeholder="e.g., Launching self-hosted billing on Thursday, hiring a founding engineer, or driving newsletter signups..."
+              disabled={isSubmitting}
+              className="w-full bg-white border border-border-warm rounded-xl px-3.5 py-2.5 text-sm text-ink focus:border-brand focus:ring-2 focus:ring-brand/15 placeholder:text-[#94A3B8] shadow-2xs font-medium"
+            />
+            <p className="text-[11px] text-[#64748B]">
+              Leave blank if you just want pure engagement &amp; authority posts.
+            </p>
           </div>
 
           {/* Loading state overlay when submitting */}
@@ -291,7 +419,7 @@ export const BatchIntakePage = () => {
                 <div className="bg-brand h-full rounded-full animate-pulse w-3/4 transition-all duration-500" />
               </div>
               <p className="text-xs text-brand-text">
-                Analyzing narrative density, identifying peak days, and formulating hooks...
+                Analyzing narrative density, extracting throughlines, and pairing stories with layout skeletons...
               </p>
             </div>
           )}
@@ -342,6 +470,17 @@ export const BatchIntakePage = () => {
           </span>
         </p>
       </footer>
+
+      {/* Voice DNA & Template Vault Modal */}
+      <VoiceTemplateVaultModal
+        isOpen={isVaultModalOpen}
+        onClose={() => setIsVaultModalOpen(false)}
+        onSaved={(updatedDNA) => {
+          setVoiceDNA(updatedDNA);
+          setLayoutTemplates(getAllLayoutTemplates());
+          showToast('Voice DNA & Templates updated', 'success');
+        }}
+      />
     </div>
   );
 };

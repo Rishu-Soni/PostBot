@@ -50,7 +50,9 @@ const getOpenAIClient = () => {
 const getModel = () => {
   const explicitModel = (process.env.AI_MODEL || process.env.OPENAI_MODEL || '').trim();
   if (explicitModel) {
-    if (explicitModel === 'gemini-flash-latest') return 'gemini-2.5-flash';
+    if (explicitModel === 'gemini-flash-latest' || explicitModel === 'gemini-2.5-flash') {
+      return 'gemini-3.5-flash-lite';
+    }
     return explicitModel;
   }
 
@@ -61,12 +63,66 @@ const getModel = () => {
   ).trim();
 
   if (baseURL.includes('generativelanguage.googleapis.com')) {
-    return 'gemini-2.5-flash';
+    return 'gemini-3.5-flash-lite';
   }
   if (baseURL.includes('mistral.ai')) {
     return 'mistral-small-latest';
   }
-  return 'gemini-2.5-flash';
+  return 'gemini-3.5-flash-lite';
+};
+
+/**
+ * Executes a chat completion with automatic fallback across models
+ * if a provider quota (429 RESOURCE_EXHAUSTED) error is returned.
+ *
+ * @param {OpenAI} openai
+ * @param {Object} params
+ * @returns {Promise<Object>}
+ */
+const createChatCompletionWithFallback = async (openai, params) => {
+  const primaryModel = params.model;
+  const isGemini = (openai.baseURL || '').includes('generativelanguage.googleapis.com');
+
+  const geminiFallbacks = ['gemini-3.5-flash-lite', 'gemini-2.5-flash'];
+  const modelsToTry = isGemini
+    ? [primaryModel, ...geminiFallbacks.filter((m) => m !== primaryModel)]
+    : [primaryModel];
+
+  let lastError;
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
+    try {
+      return await openai.chat.completions.create({
+        ...params,
+        model: currentModel,
+      });
+    } catch (err) {
+      lastError = err;
+      const isQuotaOrRateLimit =
+        err.status === 429 ||
+        (err.message && (err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')));
+
+      if (isQuotaOrRateLimit && i < modelsToTry.length - 1) {
+        console.warn(
+          `[AI Service] Quota limit reached on '${currentModel}'. Retrying with fallback model '${modelsToTry[i + 1]}' (attempt ${i + 1}/${modelsToTry.length})...`
+        );
+        continue;
+      }
+      break;
+    }
+  }
+
+  if (
+    lastError?.status === 429 ||
+    (lastError?.message && (lastError.message.includes('quota') || lastError.message.includes('RESOURCE_EXHAUSTED')))
+  ) {
+    throw new AppError(
+      'AI request quota exceeded on Gemini Free Tier. Please update AI_PROVIDER_API_KEY in backend/.env or wait until quota resets at midnight Pacific Time.',
+      429
+    );
+  }
+
+  throw lastError;
 };
 
 /**
@@ -88,26 +144,42 @@ const elaborateBrainDump = async (intake) => {
   const model = getModel();
   console.log(`[AI Service] Elaborating brain-dump via endpoint: ${openai.baseURL} (model: ${model})`);
 
-  const systemPrompt = `You are an elite LinkedIn ghostwriter and content strategist for tech founders and executives.
-Your mission is to take a founder's raw, unrefined weekly brain-dump and transform it into a structured multi-day LinkedIn content strategy.
+  const voiceDNA = intake.voiceDNA || {};
+  const layoutTemplates = Array.isArray(intake.layoutTemplates) && intake.layoutTemplates.length > 0
+    ? intake.layoutTemplates
+    : [
+        { id: 'metric-teardown', name: 'The Metric Teardown', skeleton: '[1-line metric hook] -> [The bottleneck] -> [3 bullet fixes] -> [Result + takeaway]' },
+        { id: 'contrarian-rant', name: 'The Contrarian Rant', skeleton: '[Unpopular opinion hook] -> [Why common advice fails] -> [What actually works] -> [1-line mic drop]' },
+        { id: 'founder-micro-story', name: 'The Founder Micro-Story', skeleton: '[Specific moment in time] -> [The conflict/mistake] -> [The pivot] -> [Lesson learned]' },
+        { id: 'tactical-framework', name: 'The Tactical Framework', skeleton: '[Big promise hook] -> [Numbered step-by-step breakdown] -> [Save/Bookmark CTA]' },
+      ];
 
-Founders are often busy, informal, and leave critical context unstated. You must:
-1. INFER GAPS: Unpack the unspoken implications, underlying motivations, tactical lessons, and industry context behind their notes.
-2. DISSECT SUB-TOPICS: Break down the input into genuinely distinct, substantive sub-topics. Do NOT pad thin ideas into artificial days.
-3. RECOMMEND DAY COUNT: Evaluate how many high-impact, non-repetitive posts this raw material genuinely supports:
-   - Minimum: 3 days (if the brain dump is narrow or concise).
+  const templatesCatalogue = layoutTemplates
+    .map((t) => `- ID: "${t.id}" | Name: "${t.name}" | Skeleton: ${t.skeleton}${t.referenceSample ? ' | (Cloned custom reference style)' : ''}`)
+    .join('\n');
+
+  const systemPrompt = `You are an elite LinkedIn ghostwriter and content strategist for tech founders and executives.
+Your mission is to take a founder's raw, unrefined weekly brain-dump, their optional weekly goal, their Voice DNA, and available layout templates, and build a structured multi-day LinkedIn content strategy.
+
+FOUNDER CONTENT STRATEGY PRINCIPLES:
+1. AUTO-EXTRACT WEEKLY THEME: Do not force a generic label. Synthesize a sharp, compelling overarching weekly focus from their raw notes.
+2. INFER GAPS: Unpack the unspoken implications, underlying motivations, tactical lessons, and industry context behind their notes.
+3. DISSECT SUB-TOPICS: Break down the input into genuinely distinct, substantive sub-topics. Do NOT pad thin ideas into artificial days.
+4. RECOMMEND DAY COUNT: Evaluate how many high-impact, non-repetitive posts this raw material genuinely supports:
+   - Minimum: 1 day (if the brain dump is narrow or concise).
    - Standard: 5 to 7 days (if there is solid weekly substance).
    - Maximum: 10 days (if the brain dump covers multiple complex topics, lessons, or narratives).
    - NEVER default blindly to 7. Base it strictly on supported substance.
-4. STRUCTURE EACH SUB-TOPIC: For every recommended day, establish:
-   - Day number (1 to N)
-   - Specific sub-topic theme & unique angle
-   - Core insight / value lesson
-   - Suggested hook angle (contrarian, observational, framework, story)
-   - Call to Action (CTA) direction
+5. AUTO-MATCH LAYOUT SKELETONS: For each recommended day, examine its core substance and match it to the best available layout template from the catalog:
+   - Stories with dropoffs, metrics, MRR, or conversion rates -> The Metric Teardown
+   - Hot takes, industry myths, or strong opinions -> The Contrarian Rant
+   - Personal founder struggles, bugs, or pivots -> The Founder Micro-Story
+   - Step-by-step guides, systems, or tactical playbooks -> The Tactical Framework
+   - Or any matching custom cloned template.
 
 You must output your response as valid JSON matching this schema:
 {
+  "extractedTheme": "A concise, high-impact weekly theme title synthesized from the brain-dump",
   "recommendedDayCount": number,
   "substanceEvaluation": "brief explanation of why this day count was chosen based on the input depth",
   "strategyOverview": "executive narrative arc tying the week together",
@@ -116,28 +188,37 @@ You must output your response as valid JSON matching this schema:
       "dayIndex": number,
       "subtopic": "title of the day's post focus",
       "angle": "specific angle or perspective",
+      "hookPreview": "magnetic 1-2 line opening hook preview",
+      "matchedTemplateId": "template ID from the provided catalog",
+      "matchedTemplateName": "exact template name",
+      "tone": "Direct & Contrarian | Actionable Teardown | Personal Story | Deep-Dive Case Study",
       "coreInsight": "the main takeaway or value for the reader",
-      "hookDirection": "suggested hook angle or question",
       "ctaDirection": "suggested call-to-action direction"
     }
   ]
 }`;
 
-  const userPrompt = `Intake Information:
-- Theme / Primary Domain: ${intake.theme || 'Founder Journey & Growth'}
-- Professional Level: ${intake.professionalLevel || 'Founder / Executive'}
-- Desired Tone: ${intake.tone || 'Insightful, authentic, conversational'}
-- Writing Style: ${intake.writingStyle || 'Punchy, spaced for readability, actionable'}
+  const antiRulesList = Array.isArray(voiceDNA.antiRules) ? voiceDNA.antiRules.join('; ') : 'No generic AI openings, no hashtag spam';
+
+  const userPrompt = `Intake & Writing Profile:
+- Role / Identity: ${voiceDNA.role || intake.professionalLevel || 'Senior Founder / CEO'}
+- Target Reader / Audience: ${voiceDNA.targetAudience || 'B2B SaaS Founders, Operators, Tech Leaders'}
+- Base Voice Tone: ${voiceDNA.baseTone || intake.tone || 'Direct & Contrarian'}
+- Anti-Cringe Guardrails: ${antiRulesList}${voiceDNA.customAntiRule ? `; ${voiceDNA.customAntiRule}` : ''}
+${intake.weeklyGoal ? `- Founder Weekly Goal / Plug: ${intake.weeklyGoal}` : ''}
+
+Available Layout Templates:
+${templatesCatalogue}
 
 Raw Founder Brain-Dump:
 """
 ${intake.brainDump}
 """
 
-Analyze the depth, determine the recommended day count, and build the elaborated strategy.`;
+Analyze the depth, extract the theme, match the optimal layout skeleton for each post, and return the strategy JSON.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await createChatCompletionWithFallback(openai, {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -149,31 +230,53 @@ Analyze the depth, determine the recommended day count, and build the elaborated
 
     const parsed = JSON.parse(response.choices[0].message.content);
 
-    // Validate and clamp recommended day count between 3 and 10
+    // Validate and clamp recommended day count between 1 and 10
     const rawDays = parsed.days && Array.isArray(parsed.days) ? parsed.days.length : 5;
     const countFromModel = typeof parsed.recommendedDayCount === 'number'
       ? parsed.recommendedDayCount
       : rawDays;
-    const recommendedDayCount = Math.min(10, Math.max(3, countFromModel));
+    const recommendedDayCount = Math.min(10, Math.max(1, countFromModel));
 
-    // Format the elaborated strategy as structured, highly readable markdown for downstream generation
-    const dailyBreakdown = (parsed.days || [])
+    // Build structured per-post strategy array
+    const postsStrategy = (parsed.days || []).map((d, idx) => {
+      const dayNum = d.dayIndex || idx + 1;
+      const matched = layoutTemplates.find((t) => t.id === d.matchedTemplateId) || layoutTemplates[0];
+      return {
+        dayIndex: dayNum,
+        subtopic: d.subtopic || `Day ${dayNum} Focus`,
+        angle: d.angle || 'Tactical insight',
+        hookPreview: d.hookPreview || `Day ${dayNum} hook...`,
+        matchedTemplateId: matched?.id || 'metric-teardown',
+        matchedTemplateName: matched?.name || d.matchedTemplateName || 'The Metric Teardown',
+        tone: d.tone || voiceDNA.baseTone || intake.tone || 'Direct & Contrarian',
+        coreInsight: d.coreInsight || '',
+        ctaDirection: d.ctaDirection || '',
+      };
+    });
+
+    // Format the elaborated strategy as structured markdown
+    const dailyBreakdown = postsStrategy
       .map(
         (d) => `### Day ${d.dayIndex}: ${d.subtopic}
 - **Angle:** ${d.angle}
+- **Hook Preview:** ${d.hookPreview}
+- **Assigned Layout Template:** ${d.matchedTemplateName} (${d.matchedTemplateId})
+- **Tone:** ${d.tone}
 - **Core Insight:** ${d.coreInsight}
-- **Hook Direction:** ${d.hookDirection}
 - **CTA Direction:** ${d.ctaDirection}`
       )
       .join('\n\n');
 
-    const elaboratedStrategy = `# Content Strategy & Narrative Arc
-**Theme:** ${intake.theme || 'Founder Growth'}
-**Tone:** ${intake.tone || 'Insightful'} | **Style:** ${intake.writingStyle || 'Punchy'}
-**Recommended Schedule:** ${recommendedDayCount} days (${parsed.substanceEvaluation || 'Based on input depth'})
+    const extractedTheme = parsed.extractedTheme || intake.theme || 'Weekly Founder Insights';
+    const strategyOverview = parsed.strategyOverview || 'Multi-day thought leadership calendar.';
 
+    const elaboratedStrategy = `# Content Strategy & Narrative Arc
+**Theme:** ${extractedTheme}
+**Base Tone:** ${voiceDNA.baseTone || intake.tone || 'Direct & Contrarian'}
+**Recommended Schedule:** ${recommendedDayCount} days (${parsed.substanceEvaluation || 'Based on input depth'})
+${intake.weeklyGoal ? `**Weekly Goal/Plug:** ${intake.weeklyGoal}\n` : ''}
 ## Strategic Overview
-${parsed.strategyOverview || 'Multi-day thought leadership calendar.'}
+${strategyOverview}
 
 ## Daily Sub-topic Breakdown
 ${dailyBreakdown}
@@ -182,6 +285,9 @@ ${dailyBreakdown}
     return {
       elaboratedStrategy,
       recommendedDayCount,
+      extractedTheme,
+      strategyOverview,
+      postsStrategy,
     };
   } catch (error) {
     if (error instanceof AppError) throw error;
@@ -193,20 +299,16 @@ ${dailyBreakdown}
 };
 
 /**
- * Generates LinkedIn caption and up to 5 candidate hashtags for a specific day in a batch.
- *
- * Follows LinkedIn best practice:
- * - Magnetic Hook (first 1-2 lines, stops scrolling)
- * - Story / Value delivery (short paragraphs, spaced for mobile readability, zero fluff)
- * - Clear Call to Action (CTA) (engaging question or invitation to discuss)
- * - Up to 5 relevant hashtags (mix of broad & niche, no banned/spam tags)
+ * Generates LinkedIn caption and up to 5 candidate hashtags for a specific day in a batch,
+ * tailored to the selected layout template skeleton and post-specific tone override.
  *
  * @param {string} elaboratedStrategy - Internal hidden strategy text
  * @param {number} dayIndex - 1-based index of the post within the batch
  * @param {number} totalDays - Total count of days in the batch
+ * @param {Object} [postConfig] - Optional per-post configuration { angle, hookPreview, layoutTemplate, tone, voiceDNA }
  * @returns {Promise<{ caption: string, hashtags: string[] }>}
  */
-const generatePostContent = async (elaboratedStrategy, dayIndex, totalDays) => {
+const generatePostContent = async (elaboratedStrategy, dayIndex, totalDays, postConfig = {}) => {
   if (!elaboratedStrategy) {
     throw new AppError('elaboratedStrategy is required to generate post content.', 400);
   }
@@ -218,22 +320,50 @@ const generatePostContent = async (elaboratedStrategy, dayIndex, totalDays) => {
   const model = getModel();
   console.log(`[AI Service] Generating post day ${dayIndex}/${totalDays} via endpoint: ${openai.baseURL} (model: ${model})`);
 
+  const assignedTemplate = postConfig.layoutTemplate || postConfig.matchedTemplateName || 'High-Impact LinkedIn Layout';
+  const assignedTone = postConfig.tone || 'Direct & Contrarian';
+  const voiceDNA = postConfig.voiceDNA || {};
+  const antiRules = Array.isArray(voiceDNA.antiRules) ? [...voiceDNA.antiRules] : [];
+  if (voiceDNA.customAntiRule) antiRules.push(voiceDNA.customAntiRule);
+
+  let templateGuidance = '';
+  if (typeof postConfig.layoutTemplate === 'object' && postConfig.layoutTemplate.skeleton) {
+    templateGuidance = `MANDATORY STRUCTURAL SKELETON:
+Follow this exact structural flow:
+${postConfig.layoutTemplate.skeleton}`;
+    if (postConfig.layoutTemplate.referenceSample) {
+      templateGuidance += `\nCLONED REFERENCE STYLE (Replicate line breaks, rhythm, and sentence length without copying the topic):\n"""\n${postConfig.layoutTemplate.referenceSample}\n"""`;
+    }
+  } else if (typeof postConfig.layoutTemplate === 'string') {
+    templateGuidance = `STRUCTURAL FORMAT:
+Adopt the layout pattern corresponding to: ${postConfig.layoutTemplate}`;
+  }
+
   const systemPrompt = `You are a world-class LinkedIn ghostwriter specializing in viral yet high-credibility founder content.
 Generate a complete, publishing-ready LinkedIn post for Day ${dayIndex} of a ${totalDays || 7}-day content series.
 
+POST TONE & STYLE:
+- Tone Override for this post: ${assignedTone}
+- Role / Author Persona: ${voiceDNA.role || 'Senior Founder / CEO'}
+- Target Reader Audience: ${voiceDNA.targetAudience || 'B2B SaaS Founders, Operators, Tech Leaders'}
+
+${templateGuidance ? `${templateGuidance}\n` : ''}
 POST STRUCTURE RULES:
 1. HOOK:
    - First 1-2 lines must instantly hook the reader before the "...see more" cutoff.
    - Use contrast, counter-intuitive insight, vulnerability, or a bold observation.
+   ${postConfig.hookPreview ? `- Build upon or refine this preferred hook angle: "${postConfig.hookPreview}"` : ''}
    - No generic openings like "I'm excited to announce" or "Have you ever thought about...".
 2. STORY & VALUE DELIVERY:
-   - Structure with generous white space (1-2 sentences per line/paragraph).
-   - Use conversational, punchy syntax. Bullet points or numbered lists are welcome if applicable.
+   - Structure with generous white space (1-2 sentences per line/paragraph max).
+   - Use conversational, punchy syntax. Bullet points or numbered lists are welcome where appropriate.
    - Deliver concrete, actionable value, founder realization, or framework.
 3. CALL TO ACTION (CTA):
-   - End with an authentic, specific question that invites founders, operators, or peers to comment.
+   - End with an authentic, specific question that invites peers to engage or share their experience.
    - Avoid generic "Thoughts?" or "Agree?".
-4. HASHTAGS:
+4. ANTI-CRINGE GUARDRAILS (STRICT):
+${antiRules.map((r) => `   - ${r}`).join('\n')}
+5. HASHTAGS:
    - Provide an array of up to 5 hashtags tailored specifically to this post's topic.
    - Mix 1-2 broad hashtags (e.g. #Startups, #Entrepreneurship) with 2-3 niche tags (e.g. #Bootstrapping, #B2BSaaS).
    - Ensure every hashtag starts with "#".
@@ -251,11 +381,16 @@ Output your response strictly as JSON:
 ${elaboratedStrategy}
 """
 
-Task:
-Generate the LinkedIn post for Day ${dayIndex} of ${totalDays}. Ensure the content focuses specifically on the theme and angle planned for Day ${dayIndex}.`;
+Task for Day ${dayIndex}:
+- Assigned Angle: ${postConfig.angle || 'Follow strategy arc for Day ' + dayIndex}
+- Assigned Layout: ${typeof assignedTemplate === 'string' ? assignedTemplate : assignedTemplate?.name || 'Assigned Template'}
+- Target Tone: ${assignedTone}
+${postConfig.hookPreview ? `- Preferred Hook Direction: "${postConfig.hookPreview}"` : ''}
+
+Generate the complete LinkedIn post matching these exact requirements.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await createChatCompletionWithFallback(openai, {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -356,7 +491,7 @@ ${JSON.stringify(post.hashtags || [])}
 Generate a completely refreshed ${part} with an alternative perspective and novel framing.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await createChatCompletionWithFallback(openai, {
       model,
       messages: [
         { role: 'system', content: systemPrompt },

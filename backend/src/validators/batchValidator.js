@@ -4,13 +4,13 @@ const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 
 const createBatchSchema = Joi.object({
   body: Joi.object({
-    theme: Joi.string().trim().min(1).max(200).required().messages({
-      'any.required': 'Theme is required',
-      'string.empty': 'Theme cannot be empty',
-    }),
+    theme: Joi.string().trim().max(200).allow(null, '').optional(),
+    weeklyGoal: Joi.string().trim().max(500).allow(null, '').optional(),
     professionalLevel: Joi.string().trim().allow(null, '').optional(),
     tone: Joi.string().trim().allow(null, '').optional(),
     writingStyle: Joi.string().trim().allow(null, '').optional(),
+    voiceDNA: Joi.object().unknown().optional(),
+    layoutTemplates: Joi.array().items(Joi.object().unknown()).optional(),
     brainDump: Joi.string().trim().min(1).required().messages({
       'any.required': 'Brain dump is required',
       'string.empty': 'Brain dump cannot be empty',
@@ -40,7 +40,10 @@ const updateDayCountSchema = Joi.object({
       'number.base': 'finalDayCount must be a number',
       'number.min': 'finalDayCount must be at least 1',
     }),
+    dates: Joi.array().items(Joi.string().isoDate(), Joi.string()).optional(),
     scheduledDates: Joi.array().items(Joi.string().isoDate(), Joi.string()).optional(),
+    postConfigs: Joi.array().items(Joi.object().unknown()).optional(),
+    postsStrategy: Joi.array().items(Joi.object().unknown()).optional(),
   }).required(),
 });
 

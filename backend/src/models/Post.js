@@ -57,7 +57,10 @@ const postSchema = new Schema(
     postedAt: { type: Date, default: null },
     failureReason: { type: String, default: null },
     creditRefunded: { type: Boolean, default: false }, // true when token/credit was refunded upon failure
+    manuallyScheduled: { type: Boolean, default: false },
+    isProcessing: { type: Boolean, default: false }, // atomic in-flight lock preventing concurrent mutation races
   },
+
   { timestamps: true }
 );
 

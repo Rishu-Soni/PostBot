@@ -44,7 +44,7 @@ router.post(
   batchController.confirmBatch
 );
 
-// Cancel and delete draft batch
+// Cancel and delete batch
 router.delete(
   '/:batchId',
   auth,

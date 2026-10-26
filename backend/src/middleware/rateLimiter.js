@@ -33,7 +33,22 @@ const aiRateLimiter = rateLimit({
   handler: rateLimitHandler,
 });
 
+/**
+ * Strict rate limiter specifically guarding authentication routes (login / register)
+ * against brute-force and credential stuffing attacks.
+ * Limits to 10 attempts per 15 minutes per IP.
+ */
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many authentication attempts. Please try again after 15 minutes.',
+  handler: rateLimitHandler,
+});
+
 // Default export is aiRateLimiter for direct use in route stacks
 module.exports = aiRateLimiter;
 module.exports.aiRateLimiter = aiRateLimiter;
 module.exports.globalRateLimiter = globalRateLimiter;
+module.exports.authRateLimiter = authRateLimiter;

@@ -15,22 +15,29 @@ const asyncHandler = require('../utils/asyncHandler');
  * Route: POST /api/v1/batches
  */
 const createBatch = asyncHandler(async (req, res) => {
-  const { theme, professionalLevel, tone, writingStyle, brainDump } = req.body;
+  const { theme, professionalLevel, tone, writingStyle, brainDump, weeklyGoal, voiceDNA, layoutTemplates } = req.body;
 
   const intake = {
-    theme,
-    professionalLevel: professionalLevel || null,
-    tone: tone || null,
+    theme: theme || 'Weekly Founder Insights',
+    professionalLevel: professionalLevel || voiceDNA?.role || null,
+    tone: tone || voiceDNA?.baseTone || null,
     writingStyle: writingStyle || null,
     brainDump,
+    weeklyGoal: weeklyGoal || null,
+    voiceDNA: voiceDNA || null,
+    layoutTemplates: layoutTemplates || [],
   };
 
   // Call AI elaboration stub (internal, hidden from user)
-  const { elaboratedStrategy, recommendedDayCount } = await aiService.elaborateBrainDump(intake);
+  const { elaboratedStrategy, recommendedDayCount, extractedTheme, strategyOverview, postsStrategy } =
+    await aiService.elaborateBrainDump(intake);
 
   const batch = await ContentBatch.create({
     userId: req.user._id,
     intake,
+    extractedTheme: extractedTheme || intake.theme,
+    strategyOverview,
+    postsStrategy: postsStrategy || [],
     elaboratedStrategy,
     recommendedDayCount,
     finalDayCount: recommendedDayCount,
@@ -42,6 +49,9 @@ const createBatch = asyncHandler(async (req, res) => {
     data: {
       batchId: batch._id,
       recommendedDayCount: batch.recommendedDayCount,
+      extractedTheme: batch.extractedTheme,
+      strategyOverview: batch.strategyOverview,
+      postsStrategy: batch.postsStrategy,
     },
   });
 });
@@ -125,7 +135,9 @@ const getBatch = asyncHandler(async (req, res, next) => {
  */
 const updateDayCount = asyncHandler(async (req, res, next) => {
   const batch = req.batchIdDoc;
-  const { finalDayCount, scheduledDates } = req.body;
+  const finalDayCount = req.body.finalDayCount;
+  const scheduledDates = req.body.scheduledDates || req.body.dates;
+  const postConfigs = req.body.postConfigs || req.body.postsStrategy || [];
 
   if (batch.status !== 'draft') {
     return next(new AppError('Day count can only be adjusted while batch is in draft status.', 400));
@@ -208,10 +220,19 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
 
   // Generate missing days sequentially. Save & charge per day (Fix 4: resumable partial batch generation)
   for (const dayIndex of missingDayIndices) {
+    const dayConfig = postConfigs.find((c) => c.dayIndex === dayIndex) ||
+      (batchWithStrategy.postsStrategy && batchWithStrategy.postsStrategy.find((c) => c.dayIndex === dayIndex)) ||
+      {};
+
+    if (!dayConfig.voiceDNA && batchWithStrategy.intake?.voiceDNA) {
+      dayConfig.voiceDNA = batchWithStrategy.intake.voiceDNA;
+    }
+
     const { caption, hashtags } = await aiService.generatePostContent(
       batchWithStrategy.elaboratedStrategy,
       dayIndex,
-      finalDayCount
+      finalDayCount,
+      dayConfig
     );
 
     // Images are no longer auto-generated — users choose to upload or generate on the review page
@@ -230,10 +251,12 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
       await user.save({ session });
 
       let postScheduledTime;
+      let isExplicitlyScheduled = false;
       if (Array.isArray(scheduledDates) && scheduledDates[dayIndex - 1]) {
         const d = new Date(scheduledDates[dayIndex - 1]);
         if (!isNaN(d.getTime())) {
           postScheduledTime = d;
+          isExplicitlyScheduled = true;
         }
       }
       if (!postScheduledTime) {
@@ -252,6 +275,7 @@ const updateDayCount = asyncHandler(async (req, res, next) => {
             editHistory: [],
             regenerationCount: 0,
             scheduledTime: postScheduledTime,
+            manuallyScheduled: isExplicitlyScheduled,
             status: 'pending',
           },
         ],
@@ -351,19 +375,26 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
     nowInUserTz = DateTime.now().setZone('UTC');
   }
 
-  // Compute scheduledTime per post: preserve user-chosen scheduledTime date if present
+  // Compute scheduledTime per post: skip posts that were manually scheduled so user's choice is preserved
   for (const post of posts) {
-    let scheduledDt;
-    if (post.scheduledTime && !isNaN(new Date(post.scheduledTime).getTime())) {
-      const dt = DateTime.fromJSDate(new Date(post.scheduledTime)).setZone(userTimezone);
-      scheduledDt = dt.set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
-    } else {
-      scheduledDt = nowInUserTz
-        .plus({ days: post.dayIndex })
-        .set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+    const isManuallyScheduled =
+      post.manuallyScheduled ||
+      (post.editHistory && post.editHistory.some((e) => e.type === 'reschedule'));
+
+    if (!isManuallyScheduled) {
+      let scheduledDt;
+      if (post.scheduledTime && !isNaN(new Date(post.scheduledTime).getTime())) {
+        const dt = DateTime.fromJSDate(new Date(post.scheduledTime)).setZone(userTimezone);
+        scheduledDt = dt.set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+      } else {
+        scheduledDt = nowInUserTz
+          .plus({ days: post.dayIndex })
+          .set({ hour: targetHour, minute: targetMinute, second: 0, millisecond: 0 });
+      }
+
+      post.scheduledTime = scheduledDt.toJSDate();
     }
 
-    post.scheduledTime = scheduledDt.toJSDate();
     post.status = 'pending';
     await post.save();
   }
@@ -383,16 +414,25 @@ const confirmBatch = asyncHandler(async (req, res, next) => {
 });
 
 /**
- * Cancel and delete an in-progress batch and its draft posts.
- * Only allowed while batch.status === 'draft'.
+ * Delete a batch and its associated posts.
+ * Cancels any remaining scheduled posts and refunds credits for unposted posts.
  * Route: DELETE /api/v1/batches/:batchId
  */
 const deleteBatch = asyncHandler(async (req, res, next) => {
   const batch = req.batchIdDoc;
 
-  if (batch.status !== 'draft') {
-    return next(
-      new AppError('Only draft batches can be cancelled and deleted.', 400)
+  const posts = await Post.find({ batchId: batch._id });
+  const unpostedPosts = posts.filter(
+    (p) => p.status !== 'posted' && !p.creditRefunded
+  );
+  const unrefundedCount = unpostedPosts.length;
+  if (unrefundedCount > 0) {
+    const isDraft = batch.status === 'draft';
+    await creditService.addCredits(
+      req.user._id,
+      unrefundedCount,
+      'refund',
+      `Refund for ${unrefundedCount} ${isDraft ? 'unconfirmed' : 'unposted'} post(s) from deleted batch ${batch._id}`
     );
   }
 
@@ -402,7 +442,8 @@ const deleteBatch = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: {
-      message: 'Batch and associated draft posts were cancelled and deleted successfully.',
+      message: 'Batch and associated posts were deleted successfully.',
+      refundedCredits: unrefundedCount,
     },
   });
 });

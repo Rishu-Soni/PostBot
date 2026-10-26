@@ -4,13 +4,15 @@ const { User } = require('../models');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-postbot-jwt-secret-key';
+const { getJwtSecret } = require('../config/env');
+
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const DUMMY_HASH = '$2a$12$e8Y6bS8eN1h8O5EwQ6Zpqu3I87b0a7B1c2D3E4F5G6H7I8J9K0L1M';
 
 /**
  * Signs a standard JWT token for the given user ID.
  */
-const signToken = (id) => jwt.sign({ id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+const signToken = (id) => jwt.sign({ id }, getJwtSecret(), { expiresIn: JWT_EXPIRES_IN });
 
 /**
  * Filters out private internal fields from user object before sending response.
@@ -68,6 +70,8 @@ const login = asyncHandler(async (req, res, next) => {
 
   const user = await User.findOne({ email }).select('+passwordHash');
   if (!user) {
+    // Equalize execution time against non-existent accounts to eliminate timing enumeration
+    await bcrypt.compare(password, DUMMY_HASH);
     return next(new AppError('Invalid email or password.', 401));
   }
 
